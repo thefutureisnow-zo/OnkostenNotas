@@ -2,8 +2,10 @@
 Hoofdscript — voer dagelijks uit om nieuwe NMBS-tickets te verwerken.
 
 Gebruik:
-    python main.py
+    python main.py           # normaal gebruik
+    python main.py --reset   # wis de verwerkte-ticketslijst (processed.json)
 """
+import argparse
 import sys
 from pathlib import Path
 
@@ -141,5 +143,44 @@ def main() -> None:
     print(".")
 
 
+def reset_state() -> None:
+    """Wis processed.json na bevestiging van de gebruiker."""
+    state = load_state(config.STATE_FILE)
+    n_processed = len(state.get("processed", []))
+    n_skipped = len(state.get("skipped_weekend", []))
+
+    print("NMBS Onkostennota — verwerkte tickets wissen\n")
+    print(f"  Verwerkte tickets  : {n_processed}")
+    print(f"  Weekend-overgeslagen: {n_skipped}")
+    print()
+
+    if n_processed == 0 and n_skipped == 0:
+        print("Niets te wissen — de lijst is al leeg.")
+        return
+
+    print("  LET OP: als je tickets al hebt toegevoegd aan Excel, verwijder")
+    print("  die rijen dan eerst handmatig om dubbele rijen te voorkomen.\n")
+
+    answer = input("  Wil je de lijst echt wissen? [j/N]: ").strip().lower()
+    if answer not in ("j", "y", "ja", "yes"):
+        print("Geannuleerd.")
+        return
+
+    if config.STATE_FILE.exists():
+        config.STATE_FILE.unlink()
+    print(f"✓ {config.STATE_FILE.name} gewist. Alle tickets worden opnieuw aangeboden.")
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="NMBS Onkostennota verwerker")
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Wis de lijst van verwerkte tickets (processed.json)",
+    )
+    args = parser.parse_args()
+
+    if args.reset:
+        reset_state()
+    else:
+        main()

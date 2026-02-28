@@ -129,3 +129,50 @@ class TestMainFlow:
 
         out = capsys.readouterr().out
         assert "geen nieuwe tickets" in out.lower()
+
+
+class TestResetState:
+    def test_reset_clears_state_file(self, mock_config, capsys):
+        """--reset met 'j' antwoord verwijdert processed.json."""
+        from state import load_state, save_state, mark_processed
+        import main
+
+        state = load_state(mock_config.STATE_FILE)
+        mark_processed("TST001", state)
+        save_state(state, mock_config.STATE_FILE)
+        assert mock_config.STATE_FILE.exists()
+
+        with (
+            patch("main.config", mock_config),
+            patch("builtins.input", return_value="j"),
+        ):
+            main.reset_state()
+
+        assert not mock_config.STATE_FILE.exists()
+
+    def test_reset_cancelled_leaves_state(self, mock_config, capsys):
+        """--reset met 'n' antwoord laat processed.json intact."""
+        from state import load_state, save_state, mark_processed
+        import main
+
+        state = load_state(mock_config.STATE_FILE)
+        mark_processed("TST001", state)
+        save_state(state, mock_config.STATE_FILE)
+
+        with (
+            patch("main.config", mock_config),
+            patch("builtins.input", return_value="n"),
+        ):
+            main.reset_state()
+
+        assert mock_config.STATE_FILE.exists()
+
+    def test_reset_empty_state_prints_nothing(self, mock_config, capsys):
+        """--reset op lege staat vraagt niet om bevestiging."""
+        import main
+
+        with patch("main.config", mock_config):
+            main.reset_state()
+
+        out = capsys.readouterr().out
+        assert "leeg" in out.lower()

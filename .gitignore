@@ -1,0 +1,14 @@
+credentials/
+processed.json
+config.py
+data/
+screenshots/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.env
+.claude/

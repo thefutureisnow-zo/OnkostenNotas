@@ -1,0 +1,122 @@
+"""
+Parseert de HTML-inhoud van een NMBS-bevestigingsmail en geeft een
+gestructureerd TicketData-object terug.
+"""
+import re
+from dataclasses import dataclass
+from datetime import date
+
+from bs4 import BeautifulSoup
+
+
+@dataclass
+class TicketData:
+    order_number: str
+    from_station: str   # title-case, bijv. "Zottegem"
+    to_station: str     # title-case, bijv. "Antwerpen-Zuid"
+    direction: str      # "heen" | "terug" | "heen/terug"
+    travel_date: date
+    price: float
+    email_html: str     # originele HTML, bewaard voor de screenshot
+
+
+class ParseError(Exception):
+    """Wordt gegeven als de e-mail niet de verwachte structuur heeft."""
+
+
+def _title_station(name: str) -> str:
+    """Zet een stationsnaam in title-case: ANTWERPEN-ZUID → Antwerpen-Zuid."""
+    return name.strip().title()
+
+
+def parse_nmbs_email(html: str) -> TicketData:
+    """
+    Parseer een NMBS-bevestigingsmail (HTML) en geef een TicketData terug.
+
+    Ondersteunde gevallen:
+      - "2e klas, Heen en terug" → direction="heen/terug", datum = Heen-datum
+      - "2e klas, Enkel"         → direction="heen" of "terug" afhankelijk van
+                                   welke datum aanwezig is
+    """
+    soup = BeautifulSoup(html, "lxml")
+    full_text = soup.get_text(" ", strip=True)
+
+    # --- Bestelnummer ---
+    order_match = re.search(r"Bestelnummer:\s*([A-Z0-9]+)", full_text)
+    if not order_match:
+        raise ParseError("Bestelnummer niet gevonden in de e-mail.")
+    order_number = order_match.group(1)
+
+    # --- Van / Naar ---
+    van_span = soup.find("span", string=re.compile(r"Van\s*:"))
+    naar_span = soup.find("span", string=re.compile(r"Naar\s*:"))
+    if not van_span or not naar_span:
+        raise ParseError(f"[{order_number}] Van/Naar-stations niet gevonden.")
+
+    from_station = _title_station(van_span.find_next_sibling("span").get_text())
+    to_station = _title_station(naar_span.find_next_sibling("span").get_text())
+
+    # --- Klasse & richting ---
+    if "Heen en terug" in full_text:
+        trip_type = "heen/terug"
+    elif "Enkel" in full_text:
+        trip_type = "enkel"
+    else:
+        raise ParseError(f"[{order_number}] Reistype (Enkel/Heen en terug) niet gevonden.")
+
+    # --- Reisdatum(s) ---
+    heen_match = re.search(r"Heen:\s*(\d{2}/\d{2}/\d{4})", full_text)
+    terug_match = re.search(r"Terug:\s*(\d{2}/\d{2}/\d{4})", full_text)
+
+    def parse_date(s: str) -> date:
+        day, month, year = s.split("/")
+        return date(int(year), int(month), int(day))
+
+    if trip_type == "heen/terug":
+        if not heen_match:
+            raise ParseError(f"[{order_number}] Geen Heen-datum gevonden bij heen/terug.")
+        direction = "heen/terug"
+        travel_date = parse_date(heen_match.group(1))
+    else:
+        # Enkel: bepaal richting op basis van welke datum aanwezig is
+        if heen_match and not terug_match:
+            direction = "heen"
+            travel_date = parse_date(heen_match.group(1))
+        elif terug_match and not heen_match:
+            direction = "terug"
+            travel_date = parse_date(terug_match.group(1))
+        elif heen_match and terug_match:
+            # Beide aanwezig bij Enkel: gebruik Heen-datum, markeer als heen
+            direction = "heen"
+            travel_date = parse_date(heen_match.group(1))
+        else:
+            raise ParseError(f"[{order_number}] Geen reisdatum gevonden.")
+
+    # --- Totaalbedrag ---
+    totaal_td = None
+    for td in soup.find_all("td"):
+        if "Totaalbedrag" in td.get_text():
+            totaal_td = td
+            break
+    if not totaal_td:
+        raise ParseError(f"[{order_number}] Totaalbedrag niet gevonden.")
+
+    price_td = totaal_td.find_next_sibling("td")
+    if not price_td:
+        raise ParseError(f"[{order_number}] Prijscel naast Totaalbedrag niet gevonden.")
+
+    price_text = price_td.get_text(strip=True)
+    price_match = re.search(r"([\d]+[,.][\d]+)", price_text)
+    if not price_match:
+        raise ParseError(f"[{order_number}] Prijs niet leesbaar: '{price_text}'")
+    price = float(price_match.group(1).replace(",", "."))
+
+    return TicketData(
+        order_number=order_number,
+        from_station=from_station,
+        to_station=to_station,
+        direction=direction,
+        travel_date=travel_date,
+        price=price,
+        email_html=html,
+    )

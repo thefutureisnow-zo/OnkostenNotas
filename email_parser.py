@@ -93,23 +93,12 @@ def parse_nmbs_email(html: str) -> TicketData:
             raise ParseError(f"[{order_number}] Geen reisdatum gevonden.")
 
     # --- Totaalbedrag ---
-    totaal_td = None
-    for td in soup.find_all("td"):
-        if "Totaalbedrag" in td.get_text():
-            totaal_td = td
-            break
-    if not totaal_td:
-        raise ParseError(f"[{order_number}] Totaalbedrag niet gevonden.")
-
-    price_td = totaal_td.find_next_sibling("td")
-    if not price_td:
-        raise ParseError(f"[{order_number}] Prijscel naast Totaalbedrag niet gevonden.")
-
-    price_text = price_td.get_text(strip=True)
-    price_match = re.search(r"([\d]+[,.][\d]+)", price_text)
+    # Gebruik full_text: "Totaalbedrag : € 28,00" → regex pakt het getal direct erna
+    price_match = re.search(r"Totaalbedrag\s*:?[^\d]*([\d]+[,.][\d]+)", full_text)
     if not price_match:
-        raise ParseError(f"[{order_number}] Prijs niet leesbaar: '{price_text}'")
+        raise ParseError(f"[{order_number}] Totaalbedrag niet gevonden in e-mail.")
     price = float(price_match.group(1).replace(",", "."))
+
 
     return TicketData(
         order_number=order_number,

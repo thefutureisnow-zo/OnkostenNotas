@@ -52,12 +52,12 @@ class TestSheetNameForDate:
 
 class TestDateToExcelSerial:
     def test_known_date(self):
-        # 2026-02-13 = Excel serial 45996
-        assert date_to_excel_serial(date(2026, 2, 13)) == 45996
+        # 2026-02-13 = Excel serial 46066
+        assert date_to_excel_serial(date(2026, 2, 13)) == 46066
 
     def test_epoch(self):
-        # 1900-01-01 = serial 1
-        assert date_to_excel_serial(date(1900, 1, 1)) == 1
+        # Excel epoch is 1899-12-30; 1900-01-01 = 2 days later
+        assert date_to_excel_serial(date(1900, 1, 1)) == 2
 
 
 class TestAddTicketToExcel:
@@ -126,10 +126,10 @@ class TestAddTicketToExcel:
 
         wb = openpyxl.load_workbook(temp_excel_full)
         ws = wb["Januari 2026"]
-        # Er moet nu een 9e datarij zijn
+        # Er moet nu een 9e datarij zijn (alleen integer-seriaaldata tellen mee)
         filled_rows = sum(
             1
             for row in range(DATA_START_ROW, DATA_START_ROW + 20)
-            if ws.cell(row=row, column=COL_DATUM).value is not None
+            if isinstance(ws.cell(row=row, column=COL_DATUM).value, int)
         )
         assert filled_rows == 9

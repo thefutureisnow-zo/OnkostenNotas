@@ -35,7 +35,7 @@ def save_screenshot(ticket: TicketData, screenshots_dir: Path) -> Path:
     Gooit een RuntimeError als Chrome niet beschikbaar is.
     """
     try:
-        from html2image import HtmlToImage
+        from html2image import Html2Image
     except ImportError:
         raise RuntimeError(
             "html2image is niet geïnstalleerd. Voer uit: pip install html2image"
@@ -50,7 +50,7 @@ def save_screenshot(ticket: TicketData, screenshots_dir: Path) -> Path:
         return output_path
 
     try:
-        hti = HtmlToImage(
+        hti = Html2Image(
             output_path=str(output_dir),
             custom_flags=["--no-sandbox", "--disable-gpu"],
         )

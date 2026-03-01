@@ -33,6 +33,7 @@ from excel_updater import (
 )
 from gmail_client import fetch_nmbs_emails
 from holidays_be import is_work_day, day_type_label
+from report_gen import format_summary_table, generate_html_report
 from screenshot_gen import save_screenshot
 from state import (
     load_state,
@@ -136,6 +137,8 @@ def main(month_filter: tuple[int, int] | None = None) -> None:
 
     added = 0
     skipped_weekend = 0
+    added_tickets: list[TicketData] = []
+    screenshot_paths: list[Path | None] = []
 
     for i, ticket in enumerate(tickets, 1):
         _print_ticket(ticket, i, total)
@@ -156,9 +159,10 @@ def main(month_filter: tuple[int, int] | None = None) -> None:
             continue
 
         # Screenshot opslaan
+        scr_path = None
         try:
-            screenshot_path = save_screenshot(ticket, config.SCREENSHOTS_DIR)
-            print(f"      Screenshot opgeslagen: {screenshot_path}")
+            scr_path = save_screenshot(ticket, config.SCREENSHOTS_DIR)
+            print(f"      Screenshot opgeslagen: {scr_path}")
         except RuntimeError as exc:
             print(f"      Waarschuwing: {exc}")
             print("      Verdergaan zonder screenshot...")
@@ -181,12 +185,31 @@ def main(month_filter: tuple[int, int] | None = None) -> None:
         mark_processed(ticket.order_number, state, metadata=excel_metadata)
         save_state(state, config.STATE_FILE)
         added += 1
+        added_tickets.append(ticket)
+        screenshot_paths.append(scr_path)
         print(f"      OK  Toegevoegd aan {result_path.name}")
 
     print(f"\nKlaar: {added} ticket(s) toegevoegd", end="")
     if skipped_weekend:
         print(f", {skipped_weekend} weekend/feestdag(en) overgeslagen", end="")
     print(".")
+
+    # Samenvattingstabel
+    if added_tickets:
+        print(f"\n{format_summary_table(added_tickets)}")
+
+        # HTML-rapport
+        reports_dir = getattr(config, "REPORTS_DIR", None)
+        if reports_dir:
+            try:
+                report_path = generate_html_report(
+                    added_tickets, reports_dir, screenshot_paths=screenshot_paths or None
+                )
+                print(f"\nHTML-rapport: {report_path}")
+                import webbrowser
+                webbrowser.open(str(report_path))
+            except OSError as exc:
+                print(f"\nWaarschuwing: HTML-rapport kon niet worden aangemaakt: {exc}")
 
 
 def reset_state() -> None:

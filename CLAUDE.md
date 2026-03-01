@@ -25,6 +25,7 @@ gmail_client.py      Gmail API OAuth2; returns (msg_id, order_number, html) tupl
 email_parser.py      BeautifulSoup HTML parser -> TicketData dataclass
 excel_updater.py     openpyxl: per-month Excel files (Onkosten_Januari_2026.xlsx etc.)
 screenshot_gen.py    html2image (headless Chrome) -> PNG per ticket
+report_gen.py        Terminal summary table + HTML report after processing
 holidays_be.py       Belgian holiday + weekend detection (holidays library)
 state.py             processed.json -- dedup by NMBS order number
 constants.py         Shared constants (DUTCH_MONTHS, DUTCH_MONTHS_REVERSE)
@@ -38,7 +39,8 @@ config.py            Local paths (gitignored); copy from config.example.py
 - **ASCII print only**: No unicode symbols in `print()` calls (prevents cp1252 errors on Windows). Use `->`, `OK`, `(!!)` instead.
 - **State/dedup**: `processed.json` tracks `processed` (added to Excel) and `skipped_weekend` (declined). Tickets declined via normal prompt are NOT persisted.
 - **Per-month Excel files**: Each month gets its own file (`Onkosten_Januari_2026.xlsx`) in `EXCEL_DIR`. Files are auto-created on first ticket for that month.
-- **Config**: `config.py` is gitignored. Template: `config.example.py`. `data/` and `screenshots/` are also gitignored. Uses `EXCEL_DIR` (directory) not `EXCEL_PATH`.
+- **Config**: `config.py` is gitignored. Template: `config.example.py`. `data/`, `screenshots/`, and `reports/` are gitignored. Uses `EXCEL_DIR` (directory) not `EXCEL_PATH`.
+- **Reports**: After processing, a summary table is printed. If `REPORTS_DIR` is configured, an HTML report is generated and opened in the browser.
 
 ## Test fixtures
 

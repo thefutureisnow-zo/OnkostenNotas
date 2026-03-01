@@ -23,6 +23,10 @@ EXCEL_DIR = BASE_DIR / "data"
 # Subfolders (bijv. "Februari 2026") worden automatisch aangemaakt.
 SCREENSHOTS_DIR = BASE_DIR / "screenshots"
 
+# Map waar HTML-rapporten worden opgeslagen (optioneel).
+# Verwijder de regel of zet op None om HTML-rapporten uit te schakelen.
+REPORTS_DIR = BASE_DIR / "reports"
+
 # Thuisstation en kantoorstation — gebruikt om heen/terug-richting te bepalen
 # bij enkelvoudige tickets (Enkel). Gebruik dezelfde schrijfwijze als NMBS
 # (title-case, koppelteken waar van toepassing, bijv. "Antwerpen-Zuid").

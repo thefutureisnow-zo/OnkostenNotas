@@ -3,6 +3,7 @@ processed.json
 config.py
 data/
 screenshots/
+reports/
 __pycache__/
 *.pyc
 *.pyo

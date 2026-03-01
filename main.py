@@ -44,7 +44,7 @@ def _prompt(question: str, default_yes: bool = True) -> bool:
 
 def _print_ticket(ticket: TicketData, index: int, total: int) -> None:
     print(
-        f"\n[{index}/{total}] {ticket.from_station} → {ticket.to_station}"
+        f"\n[{index}/{total}] {ticket.from_station} -> {ticket.to_station}"
         f" ({ticket.direction})"
     )
     print(
@@ -104,7 +104,7 @@ def main() -> None:
         # Weekend / feestdag controle
         if not is_work_day(ticket.travel_date):
             label = day_type_label(ticket.travel_date)
-            print(f"\n  ⚠  Dit ticket is gekocht op een {label}.")
+            print(f"\n  (!!)  Dit ticket is gekocht op een {label}.")
             if not _prompt("Toch opnemen in de onkostennota?", default_yes=False):
                 mark_skipped_weekend(ticket.order_number, state)
                 save_state(state, config.STATE_FILE)
@@ -135,7 +135,7 @@ def main() -> None:
         mark_processed(ticket.order_number, state)
         save_state(state, config.STATE_FILE)
         added += 1
-        print(f"      ✓ Toegevoegd aan {config.EXCEL_PATH.name}")
+        print(f"      OK  Toegevoegd aan {config.EXCEL_PATH.name}")
 
     print(f"\nKlaar: {added} ticket(s) toegevoegd", end="")
     if skipped_weekend:

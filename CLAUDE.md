@@ -60,7 +60,12 @@ The `DUTCH_MONTHS` dict is defined in both `excel_updater.py` and `screenshot_ge
 - Tickets where user answers "n" to the normal prompt are NOT persisted (shown again next run)
 
 **Screenshot filenames**: `trein_{DDMMYY}_{direction_slug}.png`
-where `heen/terug` → `heenenterug` (slash removed).
+where `heen/terug` -> `heenenterug` (slash removed).
+
+**Print statements**: use only plain ASCII characters in all `print()` calls.
+No arrows (`→`), checkmarks (`✓`), warning signs (`⚠`), or other non-ASCII symbols.
+Use `->`, `OK`, `(!!)` etc. instead. This prevents `UnicodeEncodeError` on Windows terminals
+that use cp1252 encoding.
 
 ## Test fixtures
 

@@ -6,10 +6,11 @@ Als het bestand nog niet bestaat, wordt het automatisch aangemaakt.
 """
 import calendar
 import re
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import openpyxl
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from constants import DUTCH_MONTHS
@@ -28,6 +29,103 @@ COL_VERVOER = 6      # F
 COL_TOTAAL = 12      # L
 
 
+# Stijlen
+DATE_FORMAT = "DD/MM/YYYY"
+EUR_FORMAT = '#,##0.00'
+THIN_SIDE = Side(style="thin")
+THIN_BORDER = Border(
+    left=THIN_SIDE, right=THIN_SIDE, top=THIN_SIDE, bottom=THIN_SIDE,
+)
+HEADER_FILL = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+HEADER_FONT = Font(bold=True)
+TOTAAL_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+TOTAAL_FONT = Font(bold=True, color="FFFFFF")
+BOLD_FONT = Font(bold=True)
+
+# Kolombreedtes (1-gebaseerd index -> breedte)
+COLUMN_WIDTHS = {
+    1: 14,   # A - Datum
+    2: 6,    # B - Nr
+    3: 42,   # C - Omschrijving
+    4: 8,    # D - Curr.
+    5: 12,   # E - Brandstof
+    6: 12,   # F - Vervoer
+    7: 12,   # G - Beurs
+    8: 12,   # H - Maaltijden
+    9: 12,   # I - Parking
+    10: 12,  # J - Materiaal
+    11: 12,  # K - Diversen
+    12: 12,  # L - Tot. EUR
+}
+
+
+def _apply_styles(ws) -> None:
+    """Past visuele opmaak toe op het werkblad.
+
+    Detecteert automatisch de laatste gevulde datarij.
+    """
+    # Detecteer laatste datarij
+    last_data_row = DATA_START_ROW - 1
+    for row in range(DATA_START_ROW, DATA_START_ROW + 50):
+        if _is_date_cell(ws.cell(row=row, column=COL_DATUM).value):
+            last_data_row = row
+    if last_data_row < DATA_START_ROW:
+        last_data_row = DATA_END_ROW  # lege sheet: stijl tot standaard eindrij
+
+    # Kolombreedtes
+    for col_idx, width in COLUMN_WIDTHS.items():
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    # Naam/Maand labels (rij 4-5, kolom A) vetgedrukt
+    for row in (4, 5):
+        ws.cell(row=row, column=1).font = BOLD_FONT
+
+    # Van/Tot datums (K4, K5) — datumformaat
+    ws["K4"].number_format = DATE_FORMAT
+    ws["K5"].number_format = DATE_FORMAT
+
+    # Kolomkoppen (rij 7) — vetgedrukt, grijze achtergrond, rand
+    for col in range(1, COL_TOTAAL + 1):
+        cell = ws.cell(row=7, column=col)
+        cell.font = HEADER_FONT
+        cell.fill = HEADER_FILL
+        cell.border = THIN_BORDER
+        cell.alignment = Alignment(horizontal="center")
+
+    # Datarijen — randen, datumformaat kolom A, EUR-formaat kolommen E-L
+    for row in range(DATA_START_ROW, last_data_row + 1):
+        for col in range(1, COL_TOTAAL + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.border = THIN_BORDER
+            if col == COL_DATUM:
+                cell.number_format = DATE_FORMAT
+            elif col >= 5:  # E t/m L: bedragen
+                cell.number_format = EUR_FORMAT
+
+    # Samenvattingsrijen zoeken en opmaken
+    for row in range(last_data_row + 1, last_data_row + 10):
+        k_val = ws.cell(row=row, column=11).value
+        if k_val == "Subtotaal":
+            # Subtotaal-rij: bovenrand, vetgedrukt
+            for col in range(1, COL_TOTAAL + 1):
+                cell = ws.cell(row=row, column=col)
+                cell.border = Border(top=THIN_SIDE)
+            ws.cell(row=row, column=11).font = BOLD_FONT
+            ws.cell(row=row, column=12).font = BOLD_FONT
+            ws.cell(row=row, column=12).number_format = EUR_FORMAT
+        elif k_val == "TOTAAL":
+            # TOTAAL-rij: blauwe achtergrond, witte tekst, vetgedrukt
+            for col in range(1, COL_TOTAAL + 1):
+                cell = ws.cell(row=row, column=col)
+                cell.fill = TOTAAL_FILL
+                cell.font = TOTAAL_FONT
+                cell.border = THIN_BORDER
+            ws.cell(row=row, column=12).number_format = EUR_FORMAT
+        elif k_val == "Voorschotten":
+            ws.cell(row=row, column=11).font = BOLD_FONT
+            ws.cell(row=row, column=12).number_format = EUR_FORMAT
+
+
 def sheet_name_for_date(d: date) -> str:
     return f"{DUTCH_MONTHS[d.month]} {d.year}"
 
@@ -43,6 +141,25 @@ def date_to_excel_serial(d: date) -> int:
     return delta.days
 
 
+def _to_datetime(d: date) -> datetime:
+    """Zet een Python date om naar een datetime (voor openpyxl celwaarden)."""
+    return datetime(d.year, d.month, d.day)
+
+
+def _is_date_cell(value) -> bool:
+    """Controleert of een celwaarde een datumwaarde is (int of datetime)."""
+    return isinstance(value, (int, datetime))
+
+
+def _dates_match(cell_value, serial: int) -> bool:
+    """Vergelijkt een celwaarde (datetime of int) met een Excel-serieel getal."""
+    if isinstance(cell_value, int):
+        return cell_value == serial
+    if isinstance(cell_value, datetime):
+        return date_to_excel_serial(cell_value.date()) == serial
+    return False
+
+
 def _find_next_data_row(ws) -> int:
     """Geeft het rijnummer van de eerste lege rij in het datablok.
 
@@ -55,7 +172,7 @@ def _find_next_data_row(ws) -> int:
             return row
         # Stop als we een SUM-formule raken (begin van het samenvattingsdeel)
         tot_value = ws.cell(row=row, column=COL_TOTAAL).value
-        if isinstance(tot_value, str) and "SUM(" in tot_value.upper() and not isinstance(cell_value, int):
+        if isinstance(tot_value, str) and "SUM(" in tot_value.upper() and not _is_date_cell(cell_value):
             return row
     return DATA_START_ROW + 50  # veiligheidsgrens
 
@@ -109,8 +226,8 @@ def _create_month_excel(excel_path: Path, d: date) -> None:
     ws["J4"] = "Van"
     first_day = date(d.year, d.month, 1)
     last_day = date(d.year, d.month, calendar.monthrange(d.year, d.month)[1])
-    ws["K4"] = date_to_excel_serial(first_day)
-    ws["K5"] = date_to_excel_serial(last_day)
+    ws["K4"] = _to_datetime(first_day)
+    ws["K5"] = _to_datetime(last_day)
     ws["J5"] = "Tot"
 
     # Kolomkoppen (rij 7)
@@ -135,6 +252,8 @@ def _create_month_excel(excel_path: Path, d: date) -> None:
     ws.cell(row=19, column=11).value = "TOTAAL"
     ws.cell(row=19, column=12).value = "=(L17-L18)"
     ws.cell(row=20, column=1).value = "Goedgekeurd"
+
+    _apply_styles(ws)
 
     excel_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(excel_path)
@@ -164,14 +283,14 @@ def remove_ticket_from_excel(
     # Bepaal de laatste gevulde datarij (voor overflow-detectie)
     last_data_row = DATA_START_ROW - 1
     for row in range(DATA_START_ROW, DATA_START_ROW + 50):
-        if isinstance(ws.cell(row=row, column=COL_DATUM).value, int):
+        if _is_date_cell(ws.cell(row=row, column=COL_DATUM).value):
             last_data_row = row
 
     # Zoek de overeenkomende rij op datum EN omschrijving
     matches = []
     for row in range(DATA_START_ROW, last_data_row + 1):
         if (
-            ws.cell(row=row, column=COL_DATUM).value == travel_date_serial
+            _dates_match(ws.cell(row=row, column=COL_DATUM).value, travel_date_serial)
             and ws.cell(row=row, column=COL_OMSCHRIJVING).value == description
         ):
             matches.append(row)
@@ -195,13 +314,13 @@ def remove_ticket_from_excel(
 
     # Herschrijf per-rij L-formule voor alle datarijen op en na de verwijderde positie
     for row in range(target_row, new_last_data_row + 1):
-        if isinstance(ws.cell(row=row, column=COL_DATUM).value, int):
+        if _is_date_cell(ws.cell(row=row, column=COL_DATUM).value):
             ws.cell(row=row, column=COL_TOTAAL).value = f"=SUM(E{row}:K{row})"
 
     # Hernummer kolom B (Nr) voor alle overblijvende datarijen
     nr = 1
     for row in range(DATA_START_ROW, new_last_data_row + 1):
-        if isinstance(ws.cell(row=row, column=COL_DATUM).value, int):
+        if _is_date_cell(ws.cell(row=row, column=COL_DATUM).value):
             ws.cell(row=row, column=COL_NR).value = nr
             nr += 1
 
@@ -221,6 +340,7 @@ def remove_ticket_from_excel(
                         flags=re.IGNORECASE,
                     )
 
+    _apply_styles(ws)
     wb.save(excel_path)
     return True
 
@@ -257,7 +377,9 @@ def add_ticket_to_excel(ticket: TicketData, excel_dir: Path) -> Path:
         f"Trein {ticket.from_station} - {ticket.to_station} {ticket.direction}"
     )
 
-    ws.cell(row=next_row, column=COL_DATUM).value = date_to_excel_serial(ticket.travel_date)
+    datum_cell = ws.cell(row=next_row, column=COL_DATUM)
+    datum_cell.value = _to_datetime(ticket.travel_date)
+    datum_cell.number_format = DATE_FORMAT
     ws.cell(row=next_row, column=COL_NR).value = nr
     ws.cell(row=next_row, column=COL_OMSCHRIJVING).value = description
     ws.cell(row=next_row, column=COL_CURR).value = "EUR"
@@ -269,5 +391,6 @@ def add_ticket_to_excel(ticket: TicketData, excel_dir: Path) -> Path:
             f"=SUM(E{next_row}:K{next_row})"
         )
 
+    _apply_styles(ws)
     wb.save(excel_path)
     return excel_path

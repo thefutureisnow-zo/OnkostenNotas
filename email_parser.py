@@ -24,6 +24,31 @@ class ParseError(Exception):
     """Wordt gegeven als de e-mail niet de verwachte structuur heeft."""
 
 
+def infer_direction(
+    from_station: str,
+    to_station: str,
+    home_station: str,
+    office_station: str,
+) -> str | None:
+    """
+    Bepaal de richting op basis van het stationpaar.
+    Geeft "heen" als je VAN thuis NAAR kantoor reist,
+    "terug" als je VAN kantoor NAAR thuis reist,
+    of None als de stations niet overeenkomen met het geconfigureerde paar.
+    Vergelijking is hoofdletterongevoelig.
+    """
+    from_lower = from_station.lower()
+    to_lower = to_station.lower()
+    home_lower = home_station.lower()
+    office_lower = office_station.lower()
+
+    if from_lower == home_lower and to_lower == office_lower:
+        return "heen"
+    if from_lower == office_lower and to_lower == home_lower:
+        return "terug"
+    return None
+
+
 def _title_station(name: str) -> str:
     """Zet een stationsnaam in title-case: ANTWERPEN-ZUID → Antwerpen-Zuid."""
     return name.strip().title()

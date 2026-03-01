@@ -59,8 +59,9 @@ The `DUTCH_MONTHS` dict is defined in both `excel_updater.py` and `screenshot_ge
 - `skipped_weekend`: user declined a weekend/holiday ticket (never shown again)
 - Tickets where user answers "n" to the normal prompt are NOT persisted (shown again next run)
 
-**Screenshot filenames**: `trein_{DDMMYY}_{direction_slug}.png`
+**Screenshot filenames**: `trein_{DDMMYY}_{direction_slug}_{order_number}.png`
 where `heen/terug` -> `heenenterug` (slash removed).
+The order number makes filenames unique even when two tickets share the same date and direction.
 
 **Print statements**: use only plain ASCII characters in all `print()` calls.
 No arrows (`→`), checkmarks (`✓`), warning signs (`⚠`), or other non-ASCII symbols.

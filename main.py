@@ -19,7 +19,7 @@ except ModuleNotFoundError:
     )
     sys.exit(1)
 
-from email_parser import TicketData, parse_nmbs_email, ParseError
+from email_parser import TicketData, parse_nmbs_email, ParseError, infer_direction
 from excel_updater import (
     add_ticket_to_excel,
     remove_ticket_from_excel,
@@ -89,7 +89,16 @@ def main() -> None:
         if is_processed(order_number, state) or is_skipped(order_number, state):
             continue
         try:
-            tickets.append(parse_nmbs_email(html_body))
+            ticket = parse_nmbs_email(html_body)
+            home = getattr(config, "HOME_STATION", None)
+            office = getattr(config, "OFFICE_STATION", None)
+            if home and office and ticket.direction in ("heen", "terug"):
+                station_dir = infer_direction(
+                    ticket.from_station, ticket.to_station, home, office
+                )
+                if station_dir is not None:
+                    ticket.direction = station_dir
+            tickets.append(ticket)
         except ParseError as exc:
             print(f"  Waarschuwing: {exc} — overgeslagen.")
 

@@ -15,10 +15,10 @@ DUTCH_MONTHS = {
 
 
 def _screenshot_filename(ticket: TicketData) -> str:
-    """Bijv. trein_130226_heenenterug.png"""
+    """Bijv. trein_130226_heenenterug_UPL1IGGK.png"""
     date_str = ticket.travel_date.strftime("%d%m%y")
     direction_slug = ticket.direction.replace("/", "en")  # heen/terug → heenenterug
-    return f"trein_{date_str}_{direction_slug}.png"
+    return f"trein_{date_str}_{direction_slug}_{ticket.order_number}.png"
 
 
 def _month_folder(d: date, screenshots_dir: Path) -> Path:

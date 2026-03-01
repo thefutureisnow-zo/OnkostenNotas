@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from email_parser import TicketData
-from tests.conftest import SAMPLE_HTML_ROUND_TRIP, SAMPLE_HTML_SINGLE_HEEN
+from tests.conftest import SAMPLE_HTML_ROUND_TRIP, SAMPLE_HTML_SINGLE_HEEN, SAMPLE_HTML_WRONG_LABEL
 
 
 def _make_raw_email_list(*html_samples):
@@ -129,6 +129,80 @@ class TestMainFlow:
 
         out = capsys.readouterr().out
         assert "geen nieuwe tickets" in out.lower()
+
+
+class TestDirectionCorrection:
+    def test_wrong_label_corrected_to_terug(self, mock_config):
+        """
+        Een 'Enkel'-ticket Van=Antwerpen-Zuid Naar=Zottegem met NMBS-label 'Heen:'
+        moet door de stationsvergelijking gecorrigeerd worden naar direction='terug'.
+        """
+        import openpyxl
+        from excel_updater import DATA_START_ROW, COL_OMSCHRIJVING
+
+        mock_config.HOME_STATION = "Zottegem"
+        mock_config.OFFICE_STATION = "Antwerpen-Zuid"
+
+        # Maak een Februari 2026-tab aan in het test-Excel zodat het ticket
+        # ook naar de juiste sheet geschreven kan worden.
+        import openpyxl as xl
+        wb = xl.load_workbook(mock_config.EXCEL_PATH)
+        ws = wb.active
+        ws.title = "Februari 2026"
+        wb.save(mock_config.EXCEL_PATH)
+
+        raw_emails = _make_raw_email_list(("WR826GNF", SAMPLE_HTML_WRONG_LABEL))
+
+        with (
+            patch("main.config", mock_config),
+            patch("main.fetch_nmbs_emails", return_value=raw_emails),
+            patch("main.save_screenshot", return_value=Path("/fake/screenshot.png")),
+            patch("builtins.input", return_value="j"),
+        ):
+            import main
+            main.main()
+
+        wb = openpyxl.load_workbook(mock_config.EXCEL_PATH)
+        ws = wb["Februari 2026"]
+        desc = ws.cell(row=DATA_START_ROW, column=COL_OMSCHRIJVING).value
+        assert desc is not None
+        assert "terug" in desc
+
+    def test_direction_unchanged_without_config(self, mock_config):
+        """
+        Zonder HOME_STATION/OFFICE_STATION blijft de parser-richting behouden
+        (date-label fallback).
+        """
+        import openpyxl
+        from excel_updater import DATA_START_ROW, COL_OMSCHRIJVING
+
+        # Expliciet leeg laten (geen HOME_STATION/OFFICE_STATION op de mock)
+        del mock_config.HOME_STATION
+        del mock_config.OFFICE_STATION
+
+        import openpyxl as xl
+        wb = xl.load_workbook(mock_config.EXCEL_PATH)
+        ws = wb.active
+        ws.title = "Februari 2026"
+        wb.save(mock_config.EXCEL_PATH)
+
+        raw_emails = _make_raw_email_list(("WR826GNF", SAMPLE_HTML_WRONG_LABEL))
+
+        with (
+            patch("main.config", mock_config),
+            patch("main.fetch_nmbs_emails", return_value=raw_emails),
+            patch("main.save_screenshot", return_value=Path("/fake/screenshot.png")),
+            patch("builtins.input", return_value="j"),
+        ):
+            import main
+            main.main()
+
+        wb = openpyxl.load_workbook(mock_config.EXCEL_PATH)
+        ws = wb["Februari 2026"]
+        desc = ws.cell(row=DATA_START_ROW, column=COL_OMSCHRIJVING).value
+        # Parser zegt "heen" omdat het NMBS-label "Heen:" is
+        assert desc is not None
+        assert "heen" in desc
 
 
 class TestResetState:

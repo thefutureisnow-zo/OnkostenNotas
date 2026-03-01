@@ -84,6 +84,32 @@ SAMPLE_HTML_SINGLE_TERUG = """<!DOCTYPE html>
 </body>
 </html>"""
 
+# Reproduceert de echte bug: NMBS-label zegt "Heen:" maar de stations
+# (Antwerpen-Zuid -> Zottegem) tonen dat het een terugrit is.
+SAMPLE_HTML_WRONG_LABEL = """<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>NMBS E-Ticket</title></head>
+<body>
+  <p>Dag STIJN VAN DER SPIEGEL,</p>
+  <table width="100%"><tr><td>
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="border-bottom: 1px solid gray; margin-top: 20px;">
+      <tr><td style="font-weight: bold; font-size: 18px;">
+        Bestelnummer: WR826GNF
+      </td></tr>
+    </table>
+  </td></tr></table>
+  <div><span>Van : </span><span style="font-weight: bold;">ANTWERPEN-ZUID</span></div>
+  <div><span>Naar : </span><span style="font-weight: bold;">ZOTTEGEM</span></div>
+  <div>2e klas, Enkel</div>
+  <div>Heen: 04/02/2026</div>
+  <table><tr>
+    <td>Totaalbedrag :</td>
+    <td>&euro; 14,00</td>
+  </tr></table>
+</body>
+</html>"""
+
 
 # ---------------------------------------------------------------------------
 # Minimale Excel-fixture die de structuur van de echte onkostennota nabootst

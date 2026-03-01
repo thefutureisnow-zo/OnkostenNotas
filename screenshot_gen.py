@@ -5,13 +5,8 @@ Vereist dat Google Chrome geïnstalleerd is.
 from datetime import date
 from pathlib import Path
 
+from constants import DUTCH_MONTHS
 from email_parser import TicketData
-
-DUTCH_MONTHS = {
-    1: "Januari", 2: "Februari", 3: "Maart", 4: "April",
-    5: "Mei", 6: "Juni", 7: "Juli", 8: "Augustus",
-    9: "September", 10: "Oktober", 11: "November", 12: "December",
-}
 
 
 def _screenshot_filename(ticket: TicketData) -> str:

@@ -8,6 +8,9 @@ from pathlib import Path
 import openpyxl
 import pytest
 
+from constants import DUTCH_MONTHS
+from excel_updater import date_to_excel_serial
+
 # ---------------------------------------------------------------------------
 # Sample e-mail HTML (gebaseerd op echte NMBS-bevestigingsmail UPL1IGGK)
 # ---------------------------------------------------------------------------
@@ -115,16 +118,7 @@ SAMPLE_HTML_WRONG_LABEL = """<!DOCTYPE html>
 # Minimale Excel-fixture die de structuur van de echte onkostennota nabootst
 # ---------------------------------------------------------------------------
 
-DUTCH_MONTHS = {
-    1: "Januari", 2: "Februari", 3: "Maart", 4: "April",
-    5: "Mei", 6: "Juni", 7: "Juli", 8: "Augustus",
-    9: "September", 10: "Oktober", 11: "November", 12: "December",
-}
-
-
-def _date_to_excel_serial(d: date) -> int:
-    from datetime import date as dt
-    return (d - dt(1899, 12, 30)).days
+_date_to_excel_serial = date_to_excel_serial
 
 
 def _build_minimal_excel(path: Path, existing_rows: int = 0) -> Path:

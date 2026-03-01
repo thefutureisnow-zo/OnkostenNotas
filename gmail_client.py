@@ -4,7 +4,9 @@ Haalt NMBS-bevestigingsmails op en geeft de HTML-inhoud terug.
 """
 import base64
 import email as email_lib
+import os
 import re
+import sys
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -45,24 +47,38 @@ def get_gmail_service(client_secret_path: Path, token_path: Path):
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(creds.to_json(), encoding="utf-8")
 
+    # Restrict token file permissions on POSIX (covers both new and pre-existing files)
+    if token_path.exists() and sys.platform != "win32":
+        os.chmod(token_path, 0o600)
+
     return build("gmail", "v1", credentials=creds)
 
 
-def _extract_html_from_raw(raw_bytes: bytes) -> str | None:
-    """Haal de HTML-body op uit een ruwe e-mailbericht (bytes)."""
+def _decode_html_part(part) -> str:
+    """Decodeer de HTML-payload van een e-mailonderdeel."""
+    payload = part.get_payload(decode=True)
+    charset = part.get_content_charset() or "utf-8"
+    return payload.decode(charset, errors="replace")
+
+
+def _parse_raw_email(raw_bytes: bytes) -> tuple[str | None, str]:
+    """
+    Parseer een rauw e-mailbericht en geef (html_body, subject) terug.
+    Parseert de bytes slechts een keer.
+    """
     parsed = email_lib.message_from_bytes(raw_bytes)
+    subject = parsed.get("Subject", "")
+
+    html_body = None
     if parsed.is_multipart():
         for part in parsed.walk():
             if part.get_content_type() == "text/html":
-                payload = part.get_payload(decode=True)
-                charset = part.get_content_charset() or "utf-8"
-                return payload.decode(charset, errors="replace")
-    else:
-        if parsed.get_content_type() == "text/html":
-            payload = parsed.get_payload(decode=True)
-            charset = parsed.get_content_charset() or "utf-8"
-            return payload.decode(charset, errors="replace")
-    return None
+                html_body = _decode_html_part(part)
+                break
+    elif parsed.get_content_type() == "text/html":
+        html_body = _decode_html_part(parsed)
+
+    return html_body, subject
 
 
 def fetch_nmbs_emails(
@@ -98,15 +114,13 @@ def fetch_nmbs_emails(
             .execute()
         )
         raw = base64.urlsafe_b64decode(msg_data["raw"] + "==")
-        html_body = _extract_html_from_raw(raw)
+        html_body, subject = _parse_raw_email(raw)
 
         if not html_body:
             print(f"  Waarschuwing: geen HTML gevonden in bericht {msg['id']}, overgeslagen.")
             continue
 
         # Haal bestelnummer op uit het onderwerp
-        parsed_msg = email_lib.message_from_bytes(raw)
-        subject = parsed_msg.get("Subject", "")
         order_match = re.search(r"([A-Z0-9]+)\s*-\s*NMBS Mobile Ticket", subject)
         order_number = order_match.group(1) if order_match else msg["id"]
 

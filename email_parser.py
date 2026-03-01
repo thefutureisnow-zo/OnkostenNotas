@@ -54,7 +54,11 @@ def _title_station(name: str) -> str:
     return name.strip().title()
 
 
-def parse_nmbs_email(html: str) -> TicketData:
+def parse_nmbs_email(
+    html: str,
+    home_station: str | None = None,
+    office_station: str | None = None,
+) -> TicketData:
     """
     Parseer een NMBS-bevestigingsmail (HTML) en geef een TicketData terug.
 
@@ -124,6 +128,14 @@ def parse_nmbs_email(html: str) -> TicketData:
         raise ParseError(f"[{order_number}] Totaalbedrag niet gevonden in e-mail.")
     price = float(price_match.group(1).replace(",", "."))
 
+    # Station-based correction only applies to single-leg tickets;
+    # round-trips are always labelled "heen/terug" regardless of direction.
+    if home_station and office_station and direction in ("heen", "terug"):
+        station_dir = infer_direction(
+            from_station, to_station, home_station, office_station
+        )
+        if station_dir is not None:
+            direction = station_dir
 
     return TicketData(
         order_number=order_number,

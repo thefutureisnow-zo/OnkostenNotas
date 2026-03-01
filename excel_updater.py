@@ -9,13 +9,8 @@ from pathlib import Path
 import openpyxl
 from openpyxl.utils import get_column_letter
 
+from constants import DUTCH_MONTHS
 from email_parser import TicketData
-
-DUTCH_MONTHS = {
-    1: "Januari", 2: "Februari", 3: "Maart", 4: "April",
-    5: "Mei", 6: "Juni", 7: "Juli", 8: "Augustus",
-    9: "September", 10: "Oktober", 11: "November", 12: "December",
-}
 
 # Rijen waar de data in staan (inclusief)
 DATA_START_ROW = 8
@@ -42,11 +37,20 @@ def date_to_excel_serial(d: date) -> int:
 
 
 def _find_next_data_row(ws) -> int:
-    """Geeft het rijnummer van de eerste lege rij in het datablok."""
-    for row in range(DATA_START_ROW, DATA_END_ROW + 1):
-        if ws.cell(row=row, column=COL_DATUM).value is None:
+    """Geeft het rijnummer van de eerste lege rij in het datablok.
+
+    Scant voorbij DATA_END_ROW om al bestaande overflow-rijen te respecteren.
+    Stopt zodra een lege rij of een SUM-formule wordt aangetroffen.
+    """
+    for row in range(DATA_START_ROW, DATA_START_ROW + 50):
+        cell_value = ws.cell(row=row, column=COL_DATUM).value
+        if cell_value is None:
             return row
-    return DATA_END_ROW + 1  # overflow: één rij voorbij het standaard bereik
+        # Stop als we een SUM-formule raken (begin van het samenvattingsdeel)
+        tot_value = ws.cell(row=row, column=COL_TOTAAL).value
+        if isinstance(tot_value, str) and "SUM(" in tot_value.upper() and not isinstance(cell_value, int):
+            return row
+    return DATA_START_ROW + 50  # veiligheidsgrens
 
 
 def _insert_overflow_row(ws, insert_at: int) -> None:

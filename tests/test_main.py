@@ -176,3 +176,97 @@ class TestResetState:
 
         out = capsys.readouterr().out
         assert "leeg" in out.lower()
+
+    def test_reset_removes_excel_rows(self, mock_config, capsys):
+        """--reset verwijdert de bijbehorende rijen uit Excel voor tickets met metadata."""
+        import openpyxl
+        from state import load_state, save_state, mark_processed
+        from excel_updater import add_ticket_to_excel, DATA_START_ROW, COL_DATUM
+        from email_parser import TicketData
+        import main
+
+        ticket = TicketData(
+            order_number="TST999",
+            from_station="Zottegem",
+            to_station="Antwerpen-Zuid",
+            direction="heen/terug",
+            travel_date=date(2026, 1, 7),
+            price=28.0,
+            email_html="",
+        )
+        add_ticket_to_excel(ticket, mock_config.EXCEL_PATH)
+
+        from excel_updater import date_to_excel_serial
+
+        state = load_state(mock_config.STATE_FILE)
+        mark_processed(
+            "TST999",
+            state,
+            metadata={
+                "sheet_name": "Januari 2026",
+                "travel_date_serial": date_to_excel_serial(date(2026, 1, 7)),
+                "description": "Trein Zottegem - Antwerpen-Zuid heen/terug",
+            },
+        )
+        save_state(state, mock_config.STATE_FILE)
+
+        with (
+            patch("main.config", mock_config),
+            patch("builtins.input", return_value="j"),
+        ):
+            main.reset_state()
+
+        assert not mock_config.STATE_FILE.exists()
+        wb = openpyxl.load_workbook(mock_config.EXCEL_PATH)
+        ws = wb["Januari 2026"]
+        assert ws.cell(row=DATA_START_ROW, column=COL_DATUM).value is None
+
+    def test_reset_skips_ticket_without_metadata(self, mock_config, capsys):
+        """--reset slaat tickets zonder Excel-metadata stil over (backward compat)."""
+        from state import load_state, save_state, mark_processed
+        import main
+
+        state = load_state(mock_config.STATE_FILE)
+        mark_processed("OLD001", state)  # geen metadata — oud formaat
+        save_state(state, mock_config.STATE_FILE)
+
+        with (
+            patch("main.config", mock_config),
+            patch("builtins.input", return_value="j"),
+        ):
+            main.reset_state()
+
+        # State moet gewist zijn ondanks het ontbreken van metadata
+        assert not mock_config.STATE_FILE.exists()
+        out = capsys.readouterr().out
+        assert "handmatig" in out.lower()
+
+    def test_reset_aborts_on_excel_locked(self, mock_config, capsys):
+        """--reset breekt af als het Excel-bestand vergrendeld is."""
+        from state import load_state, save_state, mark_processed
+        import main
+
+        state = load_state(mock_config.STATE_FILE)
+        mark_processed(
+            "TST777",
+            state,
+            metadata={
+                "sheet_name": "Januari 2026",
+                "travel_date_serial": 46028,
+                "description": "Trein X - Y heen",
+            },
+        )
+        save_state(state, mock_config.STATE_FILE)
+
+        with (
+            patch("main.config", mock_config),
+            patch("builtins.input", return_value="j"),
+            patch(
+                "main.remove_ticket_from_excel",
+                side_effect=OSError("bestand vergrendeld"),
+            ),
+        ):
+            main.reset_state()
+
+        # State mag NIET verwijderd zijn na een mislukte Excel-operatie
+        assert mock_config.STATE_FILE.exists()

@@ -2,11 +2,14 @@
 Hoofdscript — voer dagelijks uit om nieuwe NMBS-tickets te verwerken.
 
 Gebruik:
-    python main.py           # normaal gebruik
-    python main.py --reset   # wis de verwerkte-ticketslijst (processed.json)
+    python main.py                      # alle tickets
+    python main.py --month januari      # alleen januari (huidig jaar)
+    python main.py --month "maart 2025" # alleen maart 2025
+    python main.py --reset              # wis de verwerkte-ticketslijst
 """
 import argparse
 import sys
+from datetime import date
 from pathlib import Path
 
 try:
@@ -19,9 +22,11 @@ except ModuleNotFoundError:
     )
     sys.exit(1)
 
+from constants import DUTCH_MONTHS_REVERSE
 from email_parser import TicketData, parse_nmbs_email, ParseError
 from excel_updater import (
     add_ticket_to_excel,
+    excel_path_for_date,
     remove_ticket_from_excel,
     sheet_name_for_date,
     date_to_excel_serial,
@@ -40,6 +45,25 @@ from state import (
 )
 
 
+def parse_month_arg(arg: str) -> tuple[int, int]:
+    """Parseer een maandargument zoals 'januari' of 'februari 2025'.
+
+    Geeft (maand, jaar) terug. Bij alleen een maandnaam wordt het huidige jaar gebruikt.
+    Stopt het programma bij een ongeldige maandnaam.
+    """
+    parts = arg.strip().lower().split()
+    month_name = parts[0]
+
+    if month_name not in DUTCH_MONTHS_REVERSE:
+        print(f"Fout: onbekende maand '{month_name}'.")
+        print(f"Geldige maanden: {', '.join(DUTCH_MONTHS_REVERSE.keys())}")
+        sys.exit(1)
+
+    month = DUTCH_MONTHS_REVERSE[month_name]
+    year = int(parts[1]) if len(parts) > 1 else date.today().year
+    return month, year
+
+
 def _prompt(question: str, default_yes: bool = True) -> bool:
     hint = "[J/n]" if default_yes else "[j/N]"
     answer = input(f"      {question} {hint}: ").strip().lower()
@@ -55,24 +79,20 @@ def _print_ticket(ticket: TicketData, index: int, total: int) -> None:
     )
     print(
         f"      Datum : {ticket.travel_date.strftime('%d/%m/%Y')}  |"
-        f"  Prijs : € {ticket.price:.2f}"
+        f"  Prijs : EUR {ticket.price:.2f}"
     )
     print(f"      Bestelnummer : {ticket.order_number}")
 
 
-def main() -> None:
-    # Zorg dat de data- en screenshotsmappen bestaan
-    config.EXCEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+def main(month_filter: tuple[int, int] | None = None) -> None:
+    excel_dir = config.EXCEL_DIR
+    excel_dir.mkdir(parents=True, exist_ok=True)
     config.SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    if not config.EXCEL_PATH.exists():
-        print(
-            f"Fout: Excel-bestand niet gevonden op {config.EXCEL_PATH}\n"
-            "Controleer het pad in config.py en zorg dat het bestand aanwezig is."
-        )
-        sys.exit(1)
-
-    print("NMBS Onkostennota — nieuwe tickets verwerken\n")
+    print("NMBS Onkostennota -- nieuwe tickets verwerken\n")
+    if month_filter:
+        from constants import DUTCH_MONTHS
+        print(f"Maandfilter: {DUTCH_MONTHS[month_filter[0]]} {month_filter[1]}\n")
     print("Mails ophalen uit Gmail...")
 
     try:
@@ -96,7 +116,15 @@ def main() -> None:
             )
             tickets.append(ticket)
         except ParseError as exc:
-            print(f"  Waarschuwing: {exc} — overgeslagen.")
+            print(f"  Waarschuwing: {exc} -- overgeslagen.")
+
+    # Filter op maand indien opgegeven
+    if month_filter:
+        target_month, target_year = month_filter
+        tickets = [
+            t for t in tickets
+            if t.travel_date.month == target_month and t.travel_date.year == target_year
+        ]
 
     if not tickets:
         print("Geen nieuwe tickets gevonden.")
@@ -137,14 +165,14 @@ def main() -> None:
 
         # Excel bijwerken
         try:
-            add_ticket_to_excel(ticket, config.EXCEL_PATH)
+            result_path = add_ticket_to_excel(ticket, excel_dir)
         except OSError as exc:
             print(f"\n  Fout: {exc}")
             print("  Dit ticket wordt NIET als verwerkt gemarkeerd. Probeer opnieuw.")
             continue
 
         excel_metadata = {
-            "sheet_name": sheet_name_for_date(ticket.travel_date),
+            "filename": result_path.name,
             "travel_date_serial": date_to_excel_serial(ticket.travel_date),
             "description": (
                 f"Trein {ticket.from_station} - {ticket.to_station} {ticket.direction}"
@@ -153,7 +181,7 @@ def main() -> None:
         mark_processed(ticket.order_number, state, metadata=excel_metadata)
         save_state(state, config.STATE_FILE)
         added += 1
-        print(f"      OK  Toegevoegd aan {config.EXCEL_PATH.name}")
+        print(f"      OK  Toegevoegd aan {result_path.name}")
 
     print(f"\nKlaar: {added} ticket(s) toegevoegd", end="")
     if skipped_weekend:
@@ -168,13 +196,13 @@ def reset_state() -> None:
     n_processed = len(processed_orders)
     n_skipped = len(state.get("skipped_weekend", []))
 
-    print("NMBS Onkostennota — verwerkte tickets wissen\n")
+    print("NMBS Onkostennota -- verwerkte tickets wissen\n")
     print(f"  Verwerkte tickets   : {n_processed}")
     print(f"  Weekend-overgeslagen: {n_skipped}")
     print()
 
     if n_processed == 0 and n_skipped == 0:
-        print("Niets te wissen — de lijst is al leeg.")
+        print("Niets te wissen -- de lijst is al leeg.")
         return
 
     orders_with_meta = [o for o in processed_orders if get_metadata(o, state) is not None]
@@ -195,21 +223,21 @@ def reset_state() -> None:
         return
 
     # Verwijder Excel-rijen voor tickets met metadata.
-    # Bij een OSError (bestand vergrendeld) wordt de reset afgebroken.
-    if orders_with_meta and config.EXCEL_PATH.exists():
+    excel_dir = config.EXCEL_DIR
+    if orders_with_meta:
         for order in orders_with_meta:
             meta = get_metadata(order, state)
+            excel_path = excel_dir / meta["filename"]
             try:
                 removed = remove_ticket_from_excel(
-                    config.EXCEL_PATH,
-                    meta["sheet_name"],
+                    excel_path,
                     meta["travel_date_serial"],
                     meta["description"],
                 )
                 if removed:
                     print(
                         f"  Verwijderd uit Excel: {meta['description']}"
-                        f" ({meta['sheet_name']})"
+                        f" ({meta['filename']})"
                     )
             except OSError as exc:
                 print(f"\n  Fout: {exc}")
@@ -228,9 +256,16 @@ if __name__ == "__main__":
         action="store_true",
         help="Wis de lijst van verwerkte tickets (processed.json)",
     )
+    parser.add_argument(
+        "--month",
+        type=str,
+        default=None,
+        help="Verwerk alleen tickets van deze maand (bijv. 'januari' of 'maart 2025')",
+    )
     args = parser.parse_args()
 
     if args.reset:
         reset_state()
     else:
-        main()
+        month_filter = parse_month_arg(args.month) if args.month else None
+        main(month_filter=month_filter)

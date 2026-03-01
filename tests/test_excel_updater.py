@@ -1,5 +1,5 @@
 """
-Tests voor excel_updater.py
+Tests voor excel_updater.py (per-maand Excel-bestanden).
 """
 from datetime import date
 
@@ -9,6 +9,7 @@ import pytest
 from email_parser import TicketData
 from excel_updater import (
     add_ticket_to_excel,
+    excel_path_for_date,
     remove_ticket_from_excel,
     date_to_excel_serial,
     sheet_name_for_date,
@@ -63,12 +64,15 @@ class TestDateToExcelSerial:
 
 
 class TestAddTicketToExcel:
-    def test_row_written(self, temp_excel):
+    def test_row_written(self, tmp_path):
         ticket = _make_ticket()
-        add_ticket_to_excel(ticket, temp_excel)
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
+        add_ticket_to_excel(ticket, excel_dir)
 
-        wb = openpyxl.load_workbook(temp_excel)
-        ws = wb["Januari 2026"]
+        excel_path = excel_path_for_date(excel_dir, ticket.travel_date)
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
         assert ws.cell(row=DATA_START_ROW, column=COL_DATUM).value == date_to_excel_serial(
             date(2026, 1, 7)
         )
@@ -76,59 +80,89 @@ class TestAddTicketToExcel:
         assert "Zottegem" in ws.cell(row=DATA_START_ROW, column=COL_OMSCHRIJVING).value
         assert ws.cell(row=DATA_START_ROW, column=COL_VERVOER).value == 28.0
 
-    def test_formula_preserved(self, temp_excel):
+    def test_formula_preserved(self, tmp_path):
         ticket = _make_ticket()
-        add_ticket_to_excel(ticket, temp_excel)
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
+        add_ticket_to_excel(ticket, excel_dir)
 
-        wb = openpyxl.load_workbook(temp_excel)
-        ws = wb["Januari 2026"]
+        excel_path = excel_path_for_date(excel_dir, ticket.travel_date)
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
         formula = ws.cell(row=DATA_START_ROW, column=COL_TOTAAL).value
         assert formula is not None
         assert "SUM" in str(formula).upper()
 
-    def test_no_duplicate(self, temp_excel):
+    def test_no_duplicate(self, tmp_path):
         ticket = _make_ticket()
-        add_ticket_to_excel(ticket, temp_excel)
-        add_ticket_to_excel(ticket, temp_excel)
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
+        add_ticket_to_excel(ticket, excel_dir)
+        add_ticket_to_excel(ticket, excel_dir)
 
-        wb = openpyxl.load_workbook(temp_excel)
-        ws = wb["Januari 2026"]
-        # Tweede rij moet leeg zijn (of minder dan 2 datarijen ingevuld)
-        second_row_value = ws.cell(row=DATA_START_ROW + 1, column=COL_DATUM).value
-        # Opmerking: add_ticket_to_excel heeft zelf geen deduplicatie —
-        # dat doet state.py. Hier verwachten we WEL twee rijen.
+        excel_path = excel_path_for_date(excel_dir, ticket.travel_date)
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
+        # add_ticket_to_excel heeft zelf geen deduplicatie — dat doet state.py.
+        # Hier verwachten we WEL twee rijen.
         assert ws.cell(row=DATA_START_ROW, column=COL_DATUM).value is not None
 
-    def test_sequential_nr(self, temp_excel):
+    def test_sequential_nr(self, tmp_path):
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
         for i in range(3):
             ticket = _make_ticket(
                 order=f"TST0000{i}",
                 travel_date=date(2026, 1, i + 1),
                 price=14.0,
             )
-            add_ticket_to_excel(ticket, temp_excel)
+            add_ticket_to_excel(ticket, excel_dir)
 
-        wb = openpyxl.load_workbook(temp_excel)
-        ws = wb["Januari 2026"]
+        excel_path = excel_path_for_date(excel_dir, date(2026, 1, 1))
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
         assert ws.cell(row=DATA_START_ROW, column=COL_NR).value == 1
         assert ws.cell(row=DATA_START_ROW + 1, column=COL_NR).value == 2
         assert ws.cell(row=DATA_START_ROW + 2, column=COL_NR).value == 3
 
-    def test_new_month_sheet_created(self, temp_excel):
-        ticket = _make_ticket(travel_date=date(2026, 2, 4))
-        add_ticket_to_excel(ticket, temp_excel)
+    def test_different_months_create_separate_files(self, tmp_path):
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
 
-        wb = openpyxl.load_workbook(temp_excel)
-        assert "Februari 2026" in wb.sheetnames
+        add_ticket_to_excel(
+            _make_ticket(order="JAN001", travel_date=date(2026, 1, 5)), excel_dir
+        )
+        add_ticket_to_excel(
+            _make_ticket(order="FEB001", travel_date=date(2026, 2, 10)), excel_dir
+        )
 
-    def test_overflow_row_inserted(self, temp_excel_full):
+        jan_path = excel_path_for_date(excel_dir, date(2026, 1, 1))
+        feb_path = excel_path_for_date(excel_dir, date(2026, 2, 1))
+        assert jan_path.exists()
+        assert feb_path.exists()
+        assert jan_path != feb_path
+
+    def test_overflow_row_inserted(self, tmp_path):
         """Als alle 8 datarijen vol zijn, moet er een extra rij worden ingevoegd."""
-        ticket = _make_ticket(travel_date=date(2026, 1, 10), price=14.0)
-        add_ticket_to_excel(ticket, temp_excel_full)
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
 
-        wb = openpyxl.load_workbook(temp_excel_full)
-        ws = wb["Januari 2026"]
-        # Er moet nu een 9e datarij zijn (alleen integer-seriaaldata tellen mee)
+        # Vul 8 rijen
+        for i in range(8):
+            add_ticket_to_excel(
+                _make_ticket(order=f"TST{i:04d}", travel_date=date(2026, 1, i + 1), price=14.0),
+                excel_dir,
+            )
+
+        # Voeg een 9e ticket toe (triggert overflow)
+        add_ticket_to_excel(
+            _make_ticket(order="TST0008", travel_date=date(2026, 1, 10), price=14.0),
+            excel_dir,
+        )
+
+        excel_path = excel_path_for_date(excel_dir, date(2026, 1, 1))
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
         filled_rows = sum(
             1
             for row in range(DATA_START_ROW, DATA_START_ROW + 20)
@@ -138,101 +172,126 @@ class TestAddTicketToExcel:
 
 
 class TestRemoveTicketFromExcel:
-    def test_removes_row(self, temp_excel):
+    def _add_and_get_path(self, excel_dir, ticket):
+        """Voeg ticket toe en geef het bestandspad terug."""
+        return add_ticket_to_excel(ticket, excel_dir)
+
+    def test_removes_row(self, tmp_path):
         """Een ingevoerde rij kan worden teruggedraaid via remove_ticket_from_excel."""
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
         ticket = _make_ticket()
-        add_ticket_to_excel(ticket, temp_excel)
+        excel_path = self._add_and_get_path(excel_dir, ticket)
 
         date_serial = date_to_excel_serial(ticket.travel_date)
         description = f"Trein {ticket.from_station} - {ticket.to_station} {ticket.direction}"
 
-        result = remove_ticket_from_excel(temp_excel, "Januari 2026", date_serial, description)
+        result = remove_ticket_from_excel(excel_path, date_serial, description)
         assert result is True
 
-        wb = openpyxl.load_workbook(temp_excel)
-        ws = wb["Januari 2026"]
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
         assert ws.cell(row=DATA_START_ROW, column=COL_DATUM).value is None
 
-    def test_renumbers_remaining_rows(self, temp_excel):
+    def test_renumbers_remaining_rows(self, tmp_path):
         """Na verwijdering van de eerste rij worden de overige Nr-waarden hernummerd."""
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
         for i in range(3):
             add_ticket_to_excel(
                 _make_ticket(order=f"TST{i}", travel_date=date(2026, 1, i + 1), price=14.0),
-                temp_excel,
+                excel_dir,
             )
 
-        # Verwijder de eerste rij (datum 2026-01-01)
+        excel_path = excel_path_for_date(excel_dir, date(2026, 1, 1))
         remove_ticket_from_excel(
-            temp_excel,
-            "Januari 2026",
+            excel_path,
             date_to_excel_serial(date(2026, 1, 1)),
             "Trein Zottegem - Antwerpen-Zuid heen/terug",
         )
 
-        wb = openpyxl.load_workbook(temp_excel)
-        ws = wb["Januari 2026"]
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
         assert ws.cell(row=DATA_START_ROW, column=COL_NR).value == 1
         assert ws.cell(row=DATA_START_ROW + 1, column=COL_NR).value == 2
 
-    def test_l_formula_rewritten_after_delete(self, temp_excel):
+    def test_l_formula_rewritten_after_delete(self, tmp_path):
         """L-formules voor rijen na de verwijderde rij verwijzen naar de juiste rij."""
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
         for i in range(2):
             add_ticket_to_excel(
                 _make_ticket(order=f"TST{i}", travel_date=date(2026, 1, i + 1), price=14.0),
-                temp_excel,
+                excel_dir,
             )
 
-        # Verwijder rij 1 (row=8), waarna rij 2 (row=9) naar row=8 schuift
+        excel_path = excel_path_for_date(excel_dir, date(2026, 1, 1))
         remove_ticket_from_excel(
-            temp_excel,
-            "Januari 2026",
+            excel_path,
             date_to_excel_serial(date(2026, 1, 1)),
             "Trein Zottegem - Antwerpen-Zuid heen/terug",
         )
 
-        wb = openpyxl.load_workbook(temp_excel)
-        ws = wb["Januari 2026"]
-        # Rij 8 bevat nu het tweede ticket; de L-formule moet naar rij 8 verwijzen
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
         formula = ws.cell(row=DATA_START_ROW, column=COL_TOTAAL).value
         assert formula is not None
         assert f"E{DATA_START_ROW}" in str(formula)
 
-    def test_returns_false_for_missing_sheet(self, temp_excel, capsys):
-        """Geeft False terug als het tabblad niet bestaat."""
+    def test_returns_false_for_missing_file(self, tmp_path, capsys):
+        """Geeft False terug als het bestand niet bestaat."""
         result = remove_ticket_from_excel(
-            temp_excel, "Maart 2026", 12345, "Trein X - Y heen"
+            tmp_path / "nonexistent.xlsx", 12345, "Trein X - Y heen"
         )
         assert result is False
         out = capsys.readouterr().out
         assert "niet gevonden" in out.lower()
 
-    def test_returns_false_for_missing_row(self, temp_excel, capsys):
+    def test_returns_false_for_missing_row(self, tmp_path, capsys):
         """Geeft False terug als er geen overeenkomende rij is."""
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
+        # Maak bestand aan met een ticket
+        add_ticket_to_excel(
+            _make_ticket(travel_date=date(2026, 1, 5)), excel_dir
+        )
+        excel_path = excel_path_for_date(excel_dir, date(2026, 1, 1))
+
         result = remove_ticket_from_excel(
-            temp_excel,
-            "Januari 2026",
+            excel_path,
             date_to_excel_serial(date(2026, 1, 7)),
             "Trein Zottegem - Antwerpen-Zuid heen/terug",
         )
         assert result is False
 
-    def test_overflow_sum_formula_shrinks(self, temp_excel_full):
+    def test_overflow_sum_formula_shrinks(self, tmp_path):
         """Na verwijdering van een overflow-rij krimpt het SOM-bereik terug."""
-        # Voeg een 9e ticket toe (triggert overflow, voegt rij 16 in)
-        overflow_ticket = _make_ticket(travel_date=date(2026, 1, 10), price=14.0)
-        add_ticket_to_excel(overflow_ticket, temp_excel_full)
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
 
-        # Verwijder dat overflow-ticket weer
+        # Vul 8 rijen + 1 overflow
+        for i in range(8):
+            add_ticket_to_excel(
+                _make_ticket(order=f"TST{i:04d}", travel_date=date(2026, 1, i + 1), price=14.0),
+                excel_dir,
+            )
+        add_ticket_to_excel(
+            _make_ticket(order="TST0008", travel_date=date(2026, 1, 10), price=14.0),
+            excel_dir,
+        )
+
+        excel_path = excel_path_for_date(excel_dir, date(2026, 1, 1))
+
+        # Verwijder het overflow-ticket
         remove_ticket_from_excel(
-            temp_excel_full,
-            "Januari 2026",
+            excel_path,
             date_to_excel_serial(date(2026, 1, 10)),
             "Trein Zottegem - Antwerpen-Zuid heen/terug",
         )
 
-        wb = openpyxl.load_workbook(temp_excel_full)
-        ws = wb["Januari 2026"]
-        # Samenvatting-SOM op rij DATA_END_ROW+1 moet weer eindigen op DATA_END_ROW
+        wb = openpyxl.load_workbook(excel_path)
+        ws = wb.active
+        # SOM in de samenvattingsrij moet weer eindigen op DATA_END_ROW
         summary_f = ws.cell(row=DATA_END_ROW + 1, column=6).value
         assert summary_f is not None
         assert f"F{DATA_END_ROW}" in str(summary_f).upper()

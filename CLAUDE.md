@@ -10,7 +10,9 @@ generates PNG screenshots, and writes rows to an Excel "onkostennota" expense fi
 ```bash
 pip install -r requirements.txt       # install dependencies
 copy config.example.py config.py      # first-time setup
-python main.py                        # run the tool
+python main.py                        # run the tool (all months)
+python main.py --month januari        # only process January tickets
+python main.py --month "maart 2025"   # specific month + year
 python main.py --reset                # reset processed tickets
 pytest -v                             # run tests
 ```
@@ -21,11 +23,11 @@ pytest -v                             # run tests
 main.py              Orchestrator: fetch -> parse -> prompt -> screenshot -> Excel
 gmail_client.py      Gmail API OAuth2; returns (msg_id, order_number, html) tuples
 email_parser.py      BeautifulSoup HTML parser -> TicketData dataclass
-excel_updater.py     openpyxl: find/create Dutch month sheet, append row
+excel_updater.py     openpyxl: per-month Excel files (Onkosten_Januari_2026.xlsx etc.)
 screenshot_gen.py    html2image (headless Chrome) -> PNG per ticket
 holidays_be.py       Belgian holiday + weekend detection (holidays library)
 state.py             processed.json -- dedup by NMBS order number
-constants.py         Shared constants (DUTCH_MONTHS)
+constants.py         Shared constants (DUTCH_MONTHS, DUTCH_MONTHS_REVERSE)
 config.py            Local paths (gitignored); copy from config.example.py
 ```
 
@@ -35,7 +37,8 @@ config.py            Local paths (gitignored); copy from config.example.py
 - **Screenshot filenames**: `trein_{DDMMYY}_{direction_slug}_{order_number}.png` (slash removed from heen/terug)
 - **ASCII print only**: No unicode symbols in `print()` calls (prevents cp1252 errors on Windows). Use `->`, `OK`, `(!!)` instead.
 - **State/dedup**: `processed.json` tracks `processed` (added to Excel) and `skipped_weekend` (declined). Tickets declined via normal prompt are NOT persisted.
-- **Config**: `config.py` is gitignored. Template: `config.example.py`. `data/` and `screenshots/` are also gitignored.
+- **Per-month Excel files**: Each month gets its own file (`Onkosten_Januari_2026.xlsx`) in `EXCEL_DIR`. Files are auto-created on first ticket for that month.
+- **Config**: `config.py` is gitignored. Template: `config.example.py`. `data/` and `screenshots/` are also gitignored. Uses `EXCEL_DIR` (directory) not `EXCEL_PATH`.
 
 ## Test fixtures
 

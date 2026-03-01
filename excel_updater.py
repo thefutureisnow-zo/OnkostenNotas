@@ -1,5 +1,8 @@
 """
-Voegt een verwerkt ticket toe aan de juiste maandtab in de onkostennota.
+Voegt een verwerkt ticket toe aan het juiste per-maand Excel-bestand.
+
+Elk maandbestand (bijv. Onkosten_Januari_2026.xlsx) bevat precies een werkblad.
+Als het bestand nog niet bestaat, wordt het automatisch aangemaakt.
 """
 import calendar
 import re
@@ -29,9 +32,13 @@ def sheet_name_for_date(d: date) -> str:
     return f"{DUTCH_MONTHS[d.month]} {d.year}"
 
 
+def excel_path_for_date(excel_dir: Path, d: date) -> Path:
+    """Geeft het pad naar het per-maand Excel-bestand voor de gegeven datum."""
+    return excel_dir / f"Onkosten_{DUTCH_MONTHS[d.month]}_{d.year}.xlsx"
+
+
 def date_to_excel_serial(d: date) -> int:
     """Zet een Python-datum om naar een Excel-serieel getal."""
-    # Excel telt dagen vanaf 1900-01-00 (met de bekende 1900-schrikkeljaarfout)
     delta = d - date(1899, 12, 30)
     return delta.days
 
@@ -55,7 +62,7 @@ def _find_next_data_row(ws) -> int:
 
 def _insert_overflow_row(ws, insert_at: int) -> None:
     """
-    Voegt een lege rij in vóór `insert_at` en werkt de SOM-formules bij
+    Voegt een lege rij in voor `insert_at` en werkt de SOM-formules bij
     in het samenvattingsgedeelte zodat de nieuwe rij meegeteld wordt.
     """
     ws.insert_rows(insert_at)
@@ -73,7 +80,7 @@ def _insert_overflow_row(ws, insert_at: int) -> None:
             cell = ws.cell(row=summary_row, column=col_idx)
             if cell.value and isinstance(cell.value, str) and "SUM(" in cell.value.upper():
                 col_letter = get_column_letter(col_idx)
-                # Vergroot het bereik: SUM(X8:X15) → SUM(X8:X<new_last>)
+                # Vergroot het bereik: SUM(X8:X15) -> SUM(X8:X<new_last>)
                 cell.value = re.sub(
                     rf"SUM\({col_letter}(\d+):{col_letter}(\d+)\)",
                     lambda m, c=col_letter, nl=new_last_data_row: (
@@ -84,43 +91,67 @@ def _insert_overflow_row(ws, insert_at: int) -> None:
                 )
 
 
-def _create_month_sheet(wb, sheet_name: str):
+def _create_month_excel(excel_path: Path, d: date) -> None:
     """
-    Maakt een nieuw maandblad door het meest recente blad te kopiëren,
-    de datarijen te wissen en de maandnaam bij te werken.
+    Maak een nieuw per-maand Excel-bestand met de standaardstructuur.
+    Het bestand bevat precies een werkblad met de juiste maandnaam.
     """
-    template = wb.worksheets[-1]
-    new_ws = wb.copy_worksheet(template)
-    new_ws.title = sheet_name
+    sheet_name = sheet_name_for_date(d)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_name
 
-    # Wis datarijen (kolommen A t/m K; L bevat formules die we bewaren)
+    # Koptekst
+    ws["A4"] = "Naam"
+    ws["B4"] = "Stijn Van der Spiegel"
+    ws["A5"] = "Maand"
+    ws["B5"] = f" {sheet_name}"
+    ws["J4"] = "Van"
+    first_day = date(d.year, d.month, 1)
+    last_day = date(d.year, d.month, calendar.monthrange(d.year, d.month)[1])
+    ws["K4"] = date_to_excel_serial(first_day)
+    ws["K5"] = date_to_excel_serial(last_day)
+    ws["J5"] = "Tot"
+
+    # Kolomkoppen (rij 7)
+    headers = [
+        "Datum", "Nr", "Omschrijving van de kosten", "Curr.",
+        "Brandstof", "Vervoer", "Beurs", "Maaltijden",
+        "Parking", "Materiaal", "Diversen", "Tot. EUR",
+    ]
+    for col, h in enumerate(headers, 1):
+        ws.cell(row=7, column=col).value = h
+
+    # Datarijen met SOM-formule in kolom L
     for row in range(DATA_START_ROW, DATA_END_ROW + 1):
-        for col in range(1, COL_TOTAAL):  # A t/m K
-            new_ws.cell(row=row, column=col).value = None
+        ws.cell(row=row, column=COL_TOTAAL).value = f"=SUM(E{row}:K{row})"
 
-    # Maandnaam (cel B5 heeft een spatie vóór de naam, conform het origineel)
-    new_ws["B5"] = f" {sheet_name}"
+    # Samenvattingsrijen
+    ws.cell(row=16, column=6).value = f"=SUM(F{DATA_START_ROW}:F{DATA_END_ROW})"
+    ws.cell(row=17, column=11).value = "Subtotaal"
+    ws.cell(row=17, column=12).value = f"=SUM(L{DATA_START_ROW}:L{DATA_END_ROW})"
+    ws.cell(row=18, column=1).value = "Fietsvergoeding"
+    ws.cell(row=18, column=11).value = "Voorschotten"
+    ws.cell(row=19, column=11).value = "TOTAAL"
+    ws.cell(row=19, column=12).value = "=(L17-L18)"
+    ws.cell(row=20, column=1).value = "Goedgekeurd"
 
-    # Datumbereik (K4 = eerste dag, K5 = laatste dag van de maand)
-    parts = sheet_name.split()
-    month_num = next(k for k, v in DUTCH_MONTHS.items() if v == parts[0])
-    year_num = int(parts[1])
-    first_day = date(year_num, month_num, 1)
-    last_day = date(year_num, month_num, calendar.monthrange(year_num, month_num)[1])
-    new_ws["K4"] = date_to_excel_serial(first_day)
-    new_ws["K5"] = date_to_excel_serial(last_day)
-
-    return new_ws
+    excel_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(excel_path)
 
 
 def remove_ticket_from_excel(
-    excel_path: Path, sheet_name: str, travel_date_serial: int, description: str
+    excel_path: Path, travel_date_serial: int, description: str
 ) -> bool:
     """
-    Verwijdert een ticketrij uit de opgegeven maandtab.
+    Verwijdert een ticketrij uit een per-maand Excel-bestand.
     Geeft True terug als de rij gevonden en verwijderd is, anders False.
     Gooit een OSError als het bestand vergrendeld is (bijv. open in Excel).
     """
+    if not excel_path.exists():
+        print(f"  Waarschuwing: bestand '{excel_path.name}' niet gevonden.")
+        return False
+
     try:
         wb = openpyxl.load_workbook(excel_path)
     except PermissionError:
@@ -128,11 +159,7 @@ def remove_ticket_from_excel(
             f"Het Excel-bestand is vergrendeld. Sluit het eerst in Excel: {excel_path}"
         )
 
-    if sheet_name not in wb.sheetnames:
-        print(f"  Waarschuwing: tabblad '{sheet_name}' niet gevonden in Excel.")
-        return False
-
-    ws = wb[sheet_name]
+    ws = wb.active
 
     # Bepaal de laatste gevulde datarij (voor overflow-detectie)
     last_data_row = DATA_START_ROW - 1
@@ -151,14 +178,14 @@ def remove_ticket_from_excel(
 
     if not matches:
         print(
-            f"  Waarschuwing: rij voor '{description}' niet gevonden in '{sheet_name}'."
+            f"  Waarschuwing: rij voor '{description}' niet gevonden in '{excel_path.name}'."
             " Al handmatig verwijderd?"
         )
         return False
 
     if len(matches) > 1:
         print(
-            f"  Waarschuwing: meerdere overeenkomende rijen in '{sheet_name}'."
+            f"  Waarschuwing: meerdere overeenkomende rijen in '{excel_path.name}'."
             " Eerste rij wordt verwijderd."
         )
     target_row = matches[0]
@@ -167,7 +194,6 @@ def remove_ticket_from_excel(
     new_last_data_row = last_data_row - 1
 
     # Herschrijf per-rij L-formule voor alle datarijen op en na de verwijderde positie
-    # (openpyxl past rijverwijzingen in formules NIET automatisch aan)
     for row in range(target_row, new_last_data_row + 1):
         if isinstance(ws.cell(row=row, column=COL_DATUM).value, int):
             ws.cell(row=row, column=COL_TOTAAL).value = f"=SUM(E{row}:K{row})"
@@ -179,7 +205,7 @@ def remove_ticket_from_excel(
             ws.cell(row=row, column=COL_NR).value = nr
             nr += 1
 
-    # Bij overflow: verklein SOM-bereiken in de samenvattingsrijen (alle kolommen)
+    # Bij overflow: verklein SOM-bereiken in de samenvattingsrijen
     if last_data_row > DATA_END_ROW:
         for summary_row in range(new_last_data_row + 1, new_last_data_row + 20):
             for col_idx in range(1, COL_TOTAAL + 1):
@@ -199,13 +225,17 @@ def remove_ticket_from_excel(
     return True
 
 
-def add_ticket_to_excel(ticket: TicketData, excel_path: Path) -> None:
+def add_ticket_to_excel(ticket: TicketData, excel_dir: Path) -> Path:
     """
-    Voegt het ticket als nieuwe rij toe aan de juiste maandtab.
-    Als de tab nog niet bestaat, wordt ze aangemaakt op basis van de vorige maand.
+    Voegt het ticket als nieuwe rij toe aan het juiste per-maand Excel-bestand.
+    Maakt het bestand automatisch aan als het nog niet bestaat.
+    Geeft het pad naar het bijgewerkte bestand terug.
     Gooit een OSError als het bestand vergrendeld is (bijv. open in Excel).
     """
-    sheet_name = sheet_name_for_date(ticket.travel_date)
+    excel_path = excel_path_for_date(excel_dir, ticket.travel_date)
+
+    if not excel_path.exists():
+        _create_month_excel(excel_path, ticket.travel_date)
 
     try:
         wb = openpyxl.load_workbook(excel_path)
@@ -214,15 +244,11 @@ def add_ticket_to_excel(ticket: TicketData, excel_path: Path) -> None:
             f"Het Excel-bestand is vergrendeld. Sluit het eerst in Excel: {excel_path}"
         )
 
-    if sheet_name not in wb.sheetnames:
-        ws = _create_month_sheet(wb, sheet_name)
-    else:
-        ws = wb[sheet_name]
+    ws = wb.active
 
     next_row = _find_next_data_row(ws)
 
     if next_row > DATA_END_ROW:
-        # Alle standaardrijen zijn vol: voeg een extra rij in
         _insert_overflow_row(ws, next_row)
 
     # Schrijf de ticketgegevens
@@ -237,10 +263,11 @@ def add_ticket_to_excel(ticket: TicketData, excel_path: Path) -> None:
     ws.cell(row=next_row, column=COL_CURR).value = "EUR"
     ws.cell(row=next_row, column=COL_VERVOER).value = ticket.price
 
-    # Zorg dat de L-formule aanwezig is (normaal al zo bij nieuw blad, maar voor zekerheid)
+    # Zorg dat de L-formule aanwezig is
     if ws.cell(row=next_row, column=COL_TOTAAL).value is None:
         ws.cell(row=next_row, column=COL_TOTAAL).value = (
             f"=SUM(E{next_row}:K{next_row})"
         )
 
     wb.save(excel_path)
+    return excel_path

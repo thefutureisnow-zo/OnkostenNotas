@@ -50,7 +50,7 @@ def format_summary_table(tickets: list[TicketData]) -> str:
 def generate_html_report(
     tickets: list[TicketData],
     reports_dir: Path,
-    screenshot_paths: list[Path] | None = None,
+    screenshot_paths: list[Path | None] | None = None,
 ) -> Path:
     """Genereer een HTML-rapport en sla op in reports_dir. Geeft het pad terug."""
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -72,9 +72,9 @@ def generate_html_report(
             desc = f"Trein {t.from_station} - {t.to_station} {t.direction}"
             datum = t.travel_date.strftime("%d/%m/%Y")
             screenshot_cell = ""
-            if i - 1 < len(screenshots):
-                fname = screenshots[i - 1].name
-                screenshot_cell = f'<a href="{screenshots[i - 1]}">{fname}</a>'
+            if i - 1 < len(screenshots) and screenshots[i - 1] is not None:
+                scr = screenshots[i - 1]
+                screenshot_cell = f'<a href="{scr}">{scr.name}</a>'
             rows_html += (
                 f"<tr>"
                 f"<td>{i}</td>"

@@ -138,7 +138,7 @@ def main(month_filter: tuple[int, int] | None = None) -> None:
     added = 0
     skipped_weekend = 0
     added_tickets: list[TicketData] = []
-    screenshot_paths: list[Path] = []
+    screenshot_paths: list[Path | None] = []
 
     for i, ticket in enumerate(tickets, 1):
         _print_ticket(ticket, i, total)
@@ -186,8 +186,7 @@ def main(month_filter: tuple[int, int] | None = None) -> None:
         save_state(state, config.STATE_FILE)
         added += 1
         added_tickets.append(ticket)
-        if scr_path:
-            screenshot_paths.append(scr_path)
+        screenshot_paths.append(scr_path)
         print(f"      OK  Toegevoegd aan {result_path.name}")
 
     print(f"\nKlaar: {added} ticket(s) toegevoegd", end="")

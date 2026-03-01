@@ -9,11 +9,14 @@ import pytest
 
 from constants import DUTCH_MONTHS, DUTCH_MONTHS_REVERSE
 from email_parser import TicketData
+from datetime import datetime
+
 from excel_updater import (
     excel_path_for_date,
     add_ticket_to_excel,
     remove_ticket_from_excel,
     date_to_excel_serial,
+    _is_date_cell,
     DATA_START_ROW,
     COL_DATUM,
     COL_NR,
@@ -164,9 +167,9 @@ class TestPerMonthExcel:
 
         wb = openpyxl.load_workbook(result_path)
         ws = wb.active
-        # K4 = first day of month, K5 = last day
-        assert ws["K4"].value == date_to_excel_serial(date(2026, 2, 1))
-        assert ws["K5"].value == date_to_excel_serial(date(2026, 2, 28))
+        # K4 = first day of month, K5 = last day (datetime na opslaan+laden)
+        assert ws["K4"].value == datetime(2026, 2, 1)
+        assert ws["K5"].value == datetime(2026, 2, 28)
 
     def test_ticket_data_written(self, tmp_path):
         ticket = _make_ticket(travel_date=date(2026, 1, 7), price=14.0)
@@ -177,9 +180,7 @@ class TestPerMonthExcel:
         excel_path = excel_path_for_date(excel_dir, date(2026, 1, 7))
         wb = openpyxl.load_workbook(excel_path)
         ws = wb.active
-        assert ws.cell(row=DATA_START_ROW, column=COL_DATUM).value == date_to_excel_serial(
-            date(2026, 1, 7)
-        )
+        assert ws.cell(row=DATA_START_ROW, column=COL_DATUM).value == datetime(2026, 1, 7)
         assert ws.cell(row=DATA_START_ROW, column=COL_NR).value == 1
         assert "Zottegem" in ws.cell(row=DATA_START_ROW, column=COL_OMSCHRIJVING).value
         assert ws.cell(row=DATA_START_ROW, column=COL_VERVOER).value == 14.0

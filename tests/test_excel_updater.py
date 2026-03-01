@@ -13,6 +13,7 @@ from excel_updater import (
     remove_ticket_from_excel,
     date_to_excel_serial,
     sheet_name_for_date,
+    _is_date_cell,
     DATA_START_ROW,
     DATA_END_ROW,
     COL_DATUM,
@@ -20,6 +21,8 @@ from excel_updater import (
     COL_OMSCHRIJVING,
     COL_VERVOER,
     COL_TOTAAL,
+    DATE_FORMAT,
+    EUR_FORMAT,
 )
 
 
@@ -73,9 +76,8 @@ class TestAddTicketToExcel:
         excel_path = excel_path_for_date(excel_dir, ticket.travel_date)
         wb = openpyxl.load_workbook(excel_path)
         ws = wb.active
-        assert ws.cell(row=DATA_START_ROW, column=COL_DATUM).value == date_to_excel_serial(
-            date(2026, 1, 7)
-        )
+        datum_val = ws.cell(row=DATA_START_ROW, column=COL_DATUM).value
+        assert _is_date_cell(datum_val)
         assert ws.cell(row=DATA_START_ROW, column=COL_NR).value == 1
         assert "Zottegem" in ws.cell(row=DATA_START_ROW, column=COL_OMSCHRIJVING).value
         assert ws.cell(row=DATA_START_ROW, column=COL_VERVOER).value == 28.0
@@ -166,7 +168,7 @@ class TestAddTicketToExcel:
         filled_rows = sum(
             1
             for row in range(DATA_START_ROW, DATA_START_ROW + 20)
-            if isinstance(ws.cell(row=row, column=COL_DATUM).value, int)
+            if _is_date_cell(ws.cell(row=row, column=COL_DATUM).value)
         )
         assert filled_rows == 9
 
@@ -296,3 +298,59 @@ class TestRemoveTicketFromExcel:
         assert summary_f is not None
         assert f"F{DATA_END_ROW}" in str(summary_f).upper()
         assert f"F{DATA_END_ROW + 1}" not in str(summary_f).upper()
+
+
+class TestExcelStyling:
+    def _create_styled_ws(self, tmp_path):
+        """Maak een Excel-bestand met een ticket en geef het werkblad terug."""
+        excel_dir = tmp_path / "data"
+        excel_dir.mkdir()
+        ticket = _make_ticket()
+        add_ticket_to_excel(ticket, excel_dir)
+        excel_path = excel_path_for_date(excel_dir, ticket.travel_date)
+        wb = openpyxl.load_workbook(excel_path)
+        return wb.active
+
+    def test_date_cells_have_date_format(self, tmp_path):
+        ws = self._create_styled_ws(tmp_path)
+        # Datum in datarij
+        assert ws.cell(row=DATA_START_ROW, column=COL_DATUM).number_format == DATE_FORMAT
+        # Van/Tot datums
+        assert ws["K4"].number_format == DATE_FORMAT
+        assert ws["K5"].number_format == DATE_FORMAT
+
+    def test_header_row_is_bold(self, tmp_path):
+        ws = self._create_styled_ws(tmp_path)
+        for col in range(1, COL_TOTAAL + 1):
+            assert ws.cell(row=7, column=col).font.bold is True
+
+    def test_header_row_has_fill(self, tmp_path):
+        ws = self._create_styled_ws(tmp_path)
+        assert ws.cell(row=7, column=1).fill.start_color.rgb == "00D9E1F2"
+
+    def test_data_rows_have_borders(self, tmp_path):
+        ws = self._create_styled_ws(tmp_path)
+        cell = ws.cell(row=DATA_START_ROW, column=1)
+        assert cell.border.left.style == "thin"
+        assert cell.border.right.style == "thin"
+
+    def test_eur_format_on_amount_columns(self, tmp_path):
+        ws = self._create_styled_ws(tmp_path)
+        # Vervoer (col 6) en Tot. EUR (col 12)
+        assert ws.cell(row=DATA_START_ROW, column=COL_VERVOER).number_format == EUR_FORMAT
+        assert ws.cell(row=DATA_START_ROW, column=COL_TOTAAL).number_format == EUR_FORMAT
+
+    def test_totaal_row_has_blue_fill(self, tmp_path):
+        ws = self._create_styled_ws(tmp_path)
+        # Zoek de TOTAAL-rij
+        for row in range(DATA_END_ROW + 1, DATA_END_ROW + 10):
+            if ws.cell(row=row, column=11).value == "TOTAAL":
+                assert ws.cell(row=row, column=11).fill.start_color.rgb == "004472C4"
+                assert ws.cell(row=row, column=11).font.color.rgb == "00FFFFFF"
+                return
+        pytest.fail("TOTAAL-rij niet gevonden")
+
+    def test_column_widths_set(self, tmp_path):
+        ws = self._create_styled_ws(tmp_path)
+        assert ws.column_dimensions["A"].width == 14
+        assert ws.column_dimensions["C"].width == 42

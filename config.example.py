@@ -15,8 +15,9 @@ BASE_DIR = Path(__file__).parent
 # Pas aan indien gewenst (standaard werkt alles in de projectmap)
 # ---------------------------------------------------------------
 
-# Pad naar het Excel onkostennota-bestand
-EXCEL_PATH = BASE_DIR / "data" / "Onkosten Nota.xlsx"
+# Map waar de per-maand Excel-bestanden worden opgeslagen.
+# Elk maandbestand (bijv. Onkosten_Januari_2026.xlsx) wordt automatisch aangemaakt.
+EXCEL_DIR = BASE_DIR / "data"
 
 # Map waar de screenshots per maand worden opgeslagen.
 # Subfolders (bijv. "Februari 2026") worden automatisch aangemaakt.

@@ -8,6 +8,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from email_parser import TicketData
+from excel_updater import excel_path_for_date
 from tests.conftest import SAMPLE_HTML_ROUND_TRIP, SAMPLE_HTML_SINGLE_HEEN, SAMPLE_HTML_WRONG_LABEL
 
 
@@ -20,21 +21,24 @@ def _make_raw_email_list(*html_samples):
 
 
 @pytest.fixture
-def mock_config(tmp_path, temp_excel):
-    """Vervang config-waarden door testpaden."""
+def mock_config(tmp_path):
+    """Vervang config-waarden door testpaden (per-maand modus)."""
     mock = MagicMock()
-    mock.EXCEL_PATH = temp_excel
+    mock.EXCEL_DIR = tmp_path / "data"
+    mock.EXCEL_DIR.mkdir()
     mock.SCREENSHOTS_DIR = tmp_path / "screenshots"
     mock.SCREENSHOTS_DIR.mkdir()
     mock.CLIENT_SECRET_PATH = tmp_path / "credentials" / "client_secret.json"
     mock.TOKEN_PATH = tmp_path / "credentials" / "token.json"
     mock.STATE_FILE = tmp_path / "processed.json"
+    mock.HOME_STATION = "Zottegem"
+    mock.OFFICE_STATION = "Antwerpen-Zuid"
     return mock
 
 
 class TestMainFlow:
     def test_ticket_added_on_yes(self, mock_config):
-        """Ticket wordt aan Excel toegevoegd als gebruiker 'j' antwoordt."""
+        """Ticket wordt aan het per-maand Excel-bestand toegevoegd als gebruiker 'j' antwoordt."""
         import openpyxl
         from excel_updater import DATA_START_ROW, COL_VERVOER
 
@@ -49,14 +53,14 @@ class TestMainFlow:
             import main
             main.main()
 
-        wb = openpyxl.load_workbook(mock_config.EXCEL_PATH)
-        ws = wb["Februari 2026"]
+        feb_path = excel_path_for_date(mock_config.EXCEL_DIR, date(2026, 2, 1))
+        assert feb_path.exists()
+        wb = openpyxl.load_workbook(feb_path)
+        ws = wb.active
         assert ws.cell(row=DATA_START_ROW, column=COL_VERVOER).value == 28.0
 
     def test_ticket_skipped_on_no(self, mock_config):
         """Ticket wordt NIET toegevoegd als gebruiker 'n' antwoordt."""
-        import openpyxl
-
         raw_emails = _make_raw_email_list(("UPL1IGGK", SAMPLE_HTML_ROUND_TRIP))
 
         with (
@@ -67,9 +71,8 @@ class TestMainFlow:
             import main
             main.main()
 
-        wb = openpyxl.load_workbook(mock_config.EXCEL_PATH)
-        # "Februari 2026" sheet zou nog niet mogen bestaan
-        assert "Februari 2026" not in wb.sheetnames
+        feb_path = excel_path_for_date(mock_config.EXCEL_DIR, date(2026, 2, 1))
+        assert not feb_path.exists()
 
     def test_weekend_ticket_skipped_permanently(self, mock_config):
         """Weekend-ticket dat afgewezen wordt, verschijnt niet meer."""
@@ -79,7 +82,6 @@ class TestMainFlow:
         saturday_html = SAMPLE_HTML_ROUND_TRIP.replace(
             "13/02/2026 Terug: 13/02/2026", "14/02/2026 Terug: 14/02/2026"
         ).replace("13/02/2026", "14/02/2026")
-        # Pas ook de datum in de HTML aan (Heen: en Terug:)
 
         raw_emails = _make_raw_email_list(("UPL1IGGK", saturday_html))
 
@@ -140,17 +142,6 @@ class TestDirectionCorrection:
         import openpyxl
         from excel_updater import DATA_START_ROW, COL_OMSCHRIJVING
 
-        mock_config.HOME_STATION = "Zottegem"
-        mock_config.OFFICE_STATION = "Antwerpen-Zuid"
-
-        # Maak een Februari 2026-tab aan in het test-Excel zodat het ticket
-        # ook naar de juiste sheet geschreven kan worden.
-        import openpyxl as xl
-        wb = xl.load_workbook(mock_config.EXCEL_PATH)
-        ws = wb.active
-        ws.title = "Februari 2026"
-        wb.save(mock_config.EXCEL_PATH)
-
         raw_emails = _make_raw_email_list(("WR826GNF", SAMPLE_HTML_WRONG_LABEL))
 
         with (
@@ -162,8 +153,9 @@ class TestDirectionCorrection:
             import main
             main.main()
 
-        wb = openpyxl.load_workbook(mock_config.EXCEL_PATH)
-        ws = wb["Februari 2026"]
+        feb_path = excel_path_for_date(mock_config.EXCEL_DIR, date(2026, 2, 1))
+        wb = openpyxl.load_workbook(feb_path)
+        ws = wb.active
         desc = ws.cell(row=DATA_START_ROW, column=COL_OMSCHRIJVING).value
         assert desc is not None
         assert "terug" in desc
@@ -180,12 +172,6 @@ class TestDirectionCorrection:
         del mock_config.HOME_STATION
         del mock_config.OFFICE_STATION
 
-        import openpyxl as xl
-        wb = xl.load_workbook(mock_config.EXCEL_PATH)
-        ws = wb.active
-        ws.title = "Februari 2026"
-        wb.save(mock_config.EXCEL_PATH)
-
         raw_emails = _make_raw_email_list(("WR826GNF", SAMPLE_HTML_WRONG_LABEL))
 
         with (
@@ -197,8 +183,9 @@ class TestDirectionCorrection:
             import main
             main.main()
 
-        wb = openpyxl.load_workbook(mock_config.EXCEL_PATH)
-        ws = wb["Februari 2026"]
+        feb_path = excel_path_for_date(mock_config.EXCEL_DIR, date(2026, 2, 1))
+        wb = openpyxl.load_workbook(feb_path)
+        ws = wb.active
         desc = ws.cell(row=DATA_START_ROW, column=COL_OMSCHRIJVING).value
         # Parser zegt "heen" omdat het NMBS-label "Heen:" is
         assert desc is not None
@@ -268,7 +255,7 @@ class TestResetState:
             price=28.0,
             email_html="",
         )
-        add_ticket_to_excel(ticket, mock_config.EXCEL_PATH)
+        result_path = add_ticket_to_excel(ticket, mock_config.EXCEL_DIR)
 
         from excel_updater import date_to_excel_serial
 
@@ -277,7 +264,7 @@ class TestResetState:
             "TST999",
             state,
             metadata={
-                "sheet_name": "Januari 2026",
+                "filename": result_path.name,
                 "travel_date_serial": date_to_excel_serial(date(2026, 1, 7)),
                 "description": "Trein Zottegem - Antwerpen-Zuid heen/terug",
             },
@@ -291,8 +278,8 @@ class TestResetState:
             main.reset_state()
 
         assert not mock_config.STATE_FILE.exists()
-        wb = openpyxl.load_workbook(mock_config.EXCEL_PATH)
-        ws = wb["Januari 2026"]
+        wb = openpyxl.load_workbook(result_path)
+        ws = wb.active
         assert ws.cell(row=DATA_START_ROW, column=COL_DATUM).value is None
 
     def test_reset_skips_ticket_without_metadata(self, mock_config, capsys):
@@ -325,7 +312,7 @@ class TestResetState:
             "TST777",
             state,
             metadata={
-                "sheet_name": "Januari 2026",
+                "filename": "Onkosten_Januari_2026.xlsx",
                 "travel_date_serial": 46028,
                 "description": "Trein X - Y heen",
             },

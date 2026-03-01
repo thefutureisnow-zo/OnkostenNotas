@@ -1,8 +1,11 @@
 # Excel Structure
 
-## Sheet naming
+## Per-month files
 
-Sheet names use Dutch month names: `"Januari 2026"`, `"Februari 2026"`, etc.
+Each month gets its own Excel file: `Onkosten_Januari_2026.xlsx`, `Onkosten_Februari_2026.xlsx`, etc.
+Files are stored in `EXCEL_DIR` (configured in `config.py`) and auto-created on first ticket.
+
+Each file contains a single sheet named with the Dutch month: `"Januari 2026"`, `"Februari 2026"`, etc.
 The `DUTCH_MONTHS` dict is defined in `constants.py` and imported by `excel_updater.py`
 and `screenshot_gen.py`.
 
@@ -31,10 +34,11 @@ before the SUM summary block and patches the SUM ranges to include the new row.
 `_find_next_data_row()` scans beyond the standard range to handle sheets that already
 have overflow rows, stopping at the first empty row or SUM formula boundary.
 
-## New sheet creation
+## New file creation
 
-`_create_month_sheet()` copies the most recent sheet as a template, clears data rows
-(columns A-K), updates the month name in B5, and sets the date range in K4/K5.
+`_create_month_excel()` creates a new per-month Excel file with the standard structure:
+headers, 8 empty data rows with SUM formulas, and summary rows. The month name in B5
+and date range in K4/K5 are set automatically.
 
 ## Date conversion
 

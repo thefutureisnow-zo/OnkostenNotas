@@ -47,9 +47,18 @@ def get_gmail_service(client_secret_path: Path, token_path: Path):
         token_path.parent.mkdir(parents=True, exist_ok=True)
         token_path.write_text(creds.to_json(), encoding="utf-8")
 
-    # Restrict token file permissions on POSIX (covers both new and pre-existing files)
-    if token_path.exists() and sys.platform != "win32":
-        os.chmod(token_path, 0o600)
+    # Restrict token file permissions (covers both new and pre-existing files)
+    if token_path.exists():
+        if sys.platform == "win32":
+            import subprocess
+            subprocess.run(
+                ["icacls", str(token_path), "/inheritance:r",
+                 "/grant:r", f"{os.environ['USERNAME']}:F"],
+                check=False,
+                capture_output=True,
+            )
+        else:
+            os.chmod(token_path, 0o600)
 
     return build("gmail", "v1", credentials=creds)
 
@@ -113,7 +122,11 @@ def fetch_nmbs_emails(
             .get(userId="me", id=msg["id"], format="raw")
             .execute()
         )
-        raw = base64.urlsafe_b64decode(msg_data["raw"] + "==")
+        try:
+            raw = base64.urlsafe_b64decode(msg_data["raw"] + "==")
+        except Exception as exc:
+            print(f"  Waarschuwing: base64-decodering mislukt voor bericht {msg['id']}: {exc}, overgeslagen.")
+            continue
         html_body, subject = _parse_raw_email(raw)
 
         if not html_body:

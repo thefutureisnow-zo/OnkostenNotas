@@ -341,7 +341,12 @@ def remove_ticket_from_excel(
                     )
 
     _apply_styles(ws)
-    wb.save(excel_path)
+    try:
+        wb.save(excel_path)
+    except PermissionError:
+        raise OSError(
+            f"Het Excel-bestand is vergrendeld. Sluit het eerst in Excel: {excel_path}"
+        )
     return True
 
 
@@ -392,5 +397,10 @@ def add_ticket_to_excel(ticket: TicketData, excel_dir: Path) -> Path:
         )
 
     _apply_styles(ws)
-    wb.save(excel_path)
+    try:
+        wb.save(excel_path)
+    except PermissionError:
+        raise OSError(
+            f"Het Excel-bestand is vergrendeld. Sluit het eerst in Excel: {excel_path}"
+        )
     return excel_path

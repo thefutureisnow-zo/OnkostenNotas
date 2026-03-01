@@ -109,6 +109,92 @@ def _create_month_sheet(wb, sheet_name: str):
     return new_ws
 
 
+def remove_ticket_from_excel(
+    excel_path: Path, sheet_name: str, travel_date_serial: int, description: str
+) -> bool:
+    """
+    Verwijdert een ticketrij uit de opgegeven maandtab.
+    Geeft True terug als de rij gevonden en verwijderd is, anders False.
+    Gooit een OSError als het bestand vergrendeld is (bijv. open in Excel).
+    """
+    try:
+        wb = openpyxl.load_workbook(excel_path)
+    except PermissionError:
+        raise OSError(
+            f"Het Excel-bestand is vergrendeld. Sluit het eerst in Excel: {excel_path}"
+        )
+
+    if sheet_name not in wb.sheetnames:
+        print(f"  Waarschuwing: tabblad '{sheet_name}' niet gevonden in Excel.")
+        return False
+
+    ws = wb[sheet_name]
+
+    # Bepaal de laatste gevulde datarij (voor overflow-detectie)
+    last_data_row = DATA_START_ROW - 1
+    for row in range(DATA_START_ROW, DATA_START_ROW + 50):
+        if isinstance(ws.cell(row=row, column=COL_DATUM).value, int):
+            last_data_row = row
+
+    # Zoek de overeenkomende rij op datum EN omschrijving
+    matches = []
+    for row in range(DATA_START_ROW, last_data_row + 1):
+        if (
+            ws.cell(row=row, column=COL_DATUM).value == travel_date_serial
+            and ws.cell(row=row, column=COL_OMSCHRIJVING).value == description
+        ):
+            matches.append(row)
+
+    if not matches:
+        print(
+            f"  Waarschuwing: rij voor '{description}' niet gevonden in '{sheet_name}'."
+            " Al handmatig verwijderd?"
+        )
+        return False
+
+    if len(matches) > 1:
+        print(
+            f"  Waarschuwing: meerdere overeenkomende rijen in '{sheet_name}'."
+            " Eerste rij wordt verwijderd."
+        )
+    target_row = matches[0]
+
+    ws.delete_rows(target_row, 1)
+    new_last_data_row = last_data_row - 1
+
+    # Herschrijf per-rij L-formule voor alle datarijen op en na de verwijderde positie
+    # (openpyxl past rijverwijzingen in formules NIET automatisch aan)
+    for row in range(target_row, new_last_data_row + 1):
+        if isinstance(ws.cell(row=row, column=COL_DATUM).value, int):
+            ws.cell(row=row, column=COL_TOTAAL).value = f"=SUM(E{row}:K{row})"
+
+    # Hernummer kolom B (Nr) voor alle overblijvende datarijen
+    nr = 1
+    for row in range(DATA_START_ROW, new_last_data_row + 1):
+        if isinstance(ws.cell(row=row, column=COL_DATUM).value, int):
+            ws.cell(row=row, column=COL_NR).value = nr
+            nr += 1
+
+    # Bij overflow: verklein SOM-bereiken in de samenvattingsrijen (alle kolommen)
+    if last_data_row > DATA_END_ROW:
+        for summary_row in range(new_last_data_row + 1, new_last_data_row + 20):
+            for col_idx in range(1, COL_TOTAAL + 1):
+                cell = ws.cell(row=summary_row, column=col_idx)
+                if cell.value and isinstance(cell.value, str) and "SUM(" in cell.value.upper():
+                    col_letter = get_column_letter(col_idx)
+                    cell.value = re.sub(
+                        rf"SUM\({col_letter}(\d+):{col_letter}(\d+)\)",
+                        lambda m, c=col_letter, nl=new_last_data_row: (
+                            f"SUM({c}{m.group(1)}:{c}{nl})"
+                        ),
+                        cell.value,
+                        flags=re.IGNORECASE,
+                    )
+
+    wb.save(excel_path)
+    return True
+
+
 def add_ticket_to_excel(ticket: TicketData, excel_path: Path) -> None:
     """
     Voegt het ticket als nieuwe rij toe aan de juiste maandtab.

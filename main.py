@@ -20,7 +20,12 @@ except ModuleNotFoundError:
     sys.exit(1)
 
 from email_parser import TicketData, parse_nmbs_email, ParseError
-from excel_updater import add_ticket_to_excel
+from excel_updater import (
+    add_ticket_to_excel,
+    remove_ticket_from_excel,
+    sheet_name_for_date,
+    date_to_excel_serial,
+)
 from gmail_client import fetch_nmbs_emails
 from holidays_be import is_work_day, day_type_label
 from screenshot_gen import save_screenshot
@@ -31,6 +36,7 @@ from state import (
     is_skipped,
     mark_processed,
     mark_skipped_weekend,
+    get_metadata,
 )
 
 
@@ -132,7 +138,14 @@ def main() -> None:
             print("  Dit ticket wordt NIET als verwerkt gemarkeerd. Probeer opnieuw.")
             continue
 
-        mark_processed(ticket.order_number, state)
+        excel_metadata = {
+            "sheet_name": sheet_name_for_date(ticket.travel_date),
+            "travel_date_serial": date_to_excel_serial(ticket.travel_date),
+            "description": (
+                f"Trein {ticket.from_station} - {ticket.to_station} {ticket.direction}"
+            ),
+        }
+        mark_processed(ticket.order_number, state, metadata=excel_metadata)
         save_state(state, config.STATE_FILE)
         added += 1
         print(f"      OK  Toegevoegd aan {config.EXCEL_PATH.name}")
@@ -144,13 +157,14 @@ def main() -> None:
 
 
 def reset_state() -> None:
-    """Wis processed.json na bevestiging van de gebruiker."""
+    """Wis processed.json en verwijder de bijbehorende Excel-rijen na bevestiging."""
     state = load_state(config.STATE_FILE)
-    n_processed = len(state.get("processed", []))
+    processed_orders = state.get("processed", [])
+    n_processed = len(processed_orders)
     n_skipped = len(state.get("skipped_weekend", []))
 
     print("NMBS Onkostennota — verwerkte tickets wissen\n")
-    print(f"  Verwerkte tickets  : {n_processed}")
+    print(f"  Verwerkte tickets   : {n_processed}")
     print(f"  Weekend-overgeslagen: {n_skipped}")
     print()
 
@@ -158,17 +172,48 @@ def reset_state() -> None:
         print("Niets te wissen — de lijst is al leeg.")
         return
 
-    print("  LET OP: als je tickets al hebt toegevoegd aan Excel, verwijder")
-    print("  die rijen dan eerst handmatig om dubbele rijen te voorkomen.\n")
+    orders_with_meta = [o for o in processed_orders if get_metadata(o, state) is not None]
+    orders_without_meta = [o for o in processed_orders if get_metadata(o, state) is None]
+
+    if orders_with_meta:
+        print(f"  {len(orders_with_meta)} ticket(s) worden ook automatisch uit Excel verwijderd.")
+    if orders_without_meta:
+        print(
+            f"  {len(orders_without_meta)} ticket(s) zonder Excel-info:"
+            " verwijder deze rijen eventueel handmatig."
+        )
+    print()
 
     answer = input("  Wil je de lijst echt wissen? [j/N]: ").strip().lower()
     if answer not in ("j", "y", "ja", "yes"):
         print("Geannuleerd.")
         return
 
+    # Verwijder Excel-rijen voor tickets met metadata.
+    # Bij een OSError (bestand vergrendeld) wordt de reset afgebroken.
+    if orders_with_meta and config.EXCEL_PATH.exists():
+        for order in orders_with_meta:
+            meta = get_metadata(order, state)
+            try:
+                removed = remove_ticket_from_excel(
+                    config.EXCEL_PATH,
+                    meta["sheet_name"],
+                    meta["travel_date_serial"],
+                    meta["description"],
+                )
+                if removed:
+                    print(
+                        f"  Verwijderd uit Excel: {meta['description']}"
+                        f" ({meta['sheet_name']})"
+                    )
+            except OSError as exc:
+                print(f"\n  Fout: {exc}")
+                print("  Reset afgebroken. Los het probleem op en probeer opnieuw.")
+                return
+
     if config.STATE_FILE.exists():
         config.STATE_FILE.unlink()
-    print(f"✓ {config.STATE_FILE.name} gewist. Alle tickets worden opnieuw aangeboden.")
+    print(f"OK  {config.STATE_FILE.name} gewist. Alle tickets worden opnieuw aangeboden.")
 
 
 if __name__ == "__main__":

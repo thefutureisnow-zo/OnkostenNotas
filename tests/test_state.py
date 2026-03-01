@@ -20,7 +20,7 @@ def state_file(tmp_path):
 
 def test_empty_state(state_file):
     state = load_state(state_file)
-    assert state == {"processed": [], "skipped_weekend": []}
+    assert state == {"processed": [], "skipped_weekend": [], "metadata": {}}
 
 
 def test_mark_and_check_processed(state_file):

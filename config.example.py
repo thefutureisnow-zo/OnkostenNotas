@@ -22,6 +22,12 @@ EXCEL_PATH = BASE_DIR / "data" / "Onkosten Nota.xlsx"
 # Subfolders (bijv. "Februari 2026") worden automatisch aangemaakt.
 SCREENSHOTS_DIR = BASE_DIR / "screenshots"
 
+# Thuisstation en kantoorstation — gebruikt om heen/terug-richting te bepalen
+# bij enkelvoudige tickets (Enkel). Gebruik dezelfde schrijfwijze als NMBS
+# (title-case, koppelteken waar van toepassing, bijv. "Antwerpen-Zuid").
+HOME_STATION = "Zottegem"
+OFFICE_STATION = "Antwerpen-Zuid"
+
 # ---------------------------------------------------------------
 # Niet aanpassen — automatisch ingesteld
 # ---------------------------------------------------------------

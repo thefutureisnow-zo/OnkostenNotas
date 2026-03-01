@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from email_parser import parse_nmbs_email, ParseError
+from email_parser import parse_nmbs_email, ParseError, infer_direction
 
 
 class TestRoundTrip:
@@ -57,6 +57,20 @@ class TestSingleTerug:
     def test_date(self, sample_html_single_terug):
         ticket = parse_nmbs_email(sample_html_single_terug)
         assert ticket.travel_date == date(2026, 1, 7)
+
+
+class TestInferDirection:
+    def test_home_to_office_is_heen(self):
+        assert infer_direction("Zottegem", "Antwerpen-Zuid", "Zottegem", "Antwerpen-Zuid") == "heen"
+
+    def test_office_to_home_is_terug(self):
+        assert infer_direction("Antwerpen-Zuid", "Zottegem", "Zottegem", "Antwerpen-Zuid") == "terug"
+
+    def test_unknown_stations_returns_none(self):
+        assert infer_direction("Gent-Sint-Pieters", "Brussel-Zuid", "Zottegem", "Antwerpen-Zuid") is None
+
+    def test_case_insensitive(self):
+        assert infer_direction("zottegem", "ANTWERPEN-ZUID", "Zottegem", "Antwerpen-Zuid") == "heen"
 
 
 class TestParseError:

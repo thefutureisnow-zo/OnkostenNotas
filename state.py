@@ -8,10 +8,15 @@ from pathlib import Path
 
 def load_state(state_file: Path) -> dict:
     """Laad de verwerkte bestellingen uit het state-bestand."""
+    empty: dict = {"processed": [], "skipped_weekend": [], "metadata": {}}
     if state_file.exists():
-        with open(state_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {"processed": [], "skipped_weekend": [], "metadata": {}}
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"  Waarschuwing: state-bestand onleesbaar ({exc}), start met lege state.")
+            return empty
+    return empty
 
 
 def save_state(state: dict, state_file: Path) -> None:

@@ -98,8 +98,11 @@ def parse_nmbs_email(
     terug_match = re.search(r"Terug:\s*(\d{2}/\d{2}/\d{4})", full_text)
 
     def parse_date(s: str) -> date:
-        day, month, year = s.split("/")
-        return date(int(year), int(month), int(day))
+        try:
+            day, month, year = s.split("/")
+            return date(int(year), int(month), int(day))
+        except (ValueError, TypeError) as exc:
+            raise ParseError(f"[{order_number}] Ongeldige datum '{s}': {exc}") from exc
 
     if trip_type == "heen/terug":
         if not heen_match:

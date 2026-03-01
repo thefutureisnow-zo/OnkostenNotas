@@ -61,7 +61,19 @@ def parse_month_arg(arg: str) -> tuple[int, int]:
         sys.exit(1)
 
     month = DUTCH_MONTHS_REVERSE[month_name]
-    year = int(parts[1]) if len(parts) > 1 else date.today().year
+
+    if len(parts) > 1:
+        try:
+            year = int(parts[1])
+        except ValueError:
+            print(f"Fout: ongeldig jaar '{parts[1]}'.")
+            sys.exit(1)
+        if not (2000 <= year <= 2100):
+            print(f"Fout: jaar '{year}' buiten geldig bereik (2000-2100).")
+            sys.exit(1)
+    else:
+        year = date.today().year
+
     return month, year
 
 

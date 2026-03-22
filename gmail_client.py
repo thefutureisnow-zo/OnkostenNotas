@@ -9,6 +9,7 @@ import re
 import sys
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -32,8 +33,12 @@ def get_gmail_service(client_secret_path: Path, token_path: Path):
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                print("Token verlopen of ingetrokken, opnieuw inloggen...")
+                creds = None
+        if not creds or not creds.valid:
             if not client_secret_path.exists():
                 raise FileNotFoundError(
                     f"client_secret.json niet gevonden op {client_secret_path}\n"

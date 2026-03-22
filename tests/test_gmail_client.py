@@ -1,6 +1,5 @@
 """Tests voor gmail_client.py -- OAuth2 token handling."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,3 +56,29 @@ def test_refresh_error_falls_through_to_reauth(
     # Verify user-friendly message was printed
     captured = capsys.readouterr()
     assert "opnieuw inloggen" in captured.out
+
+    # Verify new token was persisted to disk
+    assert tmp_token.read_text(encoding="utf-8") == '{"token": "new"}'
+
+
+@patch("gmail_client.build")
+@patch("gmail_client.InstalledAppFlow")
+@patch("gmail_client.Credentials")
+def test_retryable_refresh_error_is_reraised(
+    mock_creds_cls, mock_flow_cls, mock_build, tmp_token, tmp_secret
+):
+    """Tijdelijke RefreshError (5xx) moet opnieuw gegooid worden."""
+    mock_creds = MagicMock()
+    mock_creds.valid = False
+    mock_creds.expired = True
+    mock_creds.refresh_token = "some_token"
+    class RetryableRefreshError(RefreshError):
+        retryable = True
+    mock_creds.refresh.side_effect = RetryableRefreshError("server_error")
+    mock_creds_cls.from_authorized_user_file.return_value = mock_creds
+
+    with pytest.raises(RefreshError):
+        get_gmail_service(tmp_secret, tmp_token)
+
+    # Re-auth flow should NOT have been triggered
+    mock_flow_cls.from_client_secrets_file.assert_not_called()

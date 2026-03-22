@@ -35,8 +35,11 @@ def get_gmail_service(client_secret_path: Path, token_path: Path):
         if creds and creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
-            except RefreshError:
+            except RefreshError as exc:
+                if getattr(exc, "retryable", False):
+                    raise
                 print("Token verlopen of ingetrokken, opnieuw inloggen...")
+                token_path.unlink(missing_ok=True)
                 creds = None
         if not creds or not creds.valid:
             if not client_secret_path.exists():
